@@ -54,8 +54,22 @@ def _binance_symbols_with_volume() -> dict[str, float]:
     """
     返回 {BTCUSDT: 24h_quote_volume, ...}
     只保留 USDT 永续合约且成交额 >= MIN_VOLUME_USDT 的标的。
+
+    主网 fapi.binance.com 在部分国家/地区会返回 451，云服务器常见；
+    失败时回退到期货测试网拉取（用于排序与交集，Demo 模式可正常跑）。
     """
-    data = _get(f"{_get_rest_base('binance')}/fapi/v1/ticker/24hr")
+    main_base = get_rest_url("binance", testnet=False)
+    data = _get(f"{main_base}/fapi/v1/ticker/24hr")
+    min_vol = MIN_VOLUME_USDT
+    if not data:
+        test_base = get_rest_url("binance", testnet=True)
+        logger.warning(
+            "Binance 主网 24h 行情不可用（常见：地区限制 451），改用测试网 %s",
+            test_base,
+        )
+        data = _get(f"{test_base}/fapi/v1/ticker/24hr")
+        # 测试网成交额远低于主网，不过滤下限以免交集为空
+        min_vol = 0.0
     if not data:
         return {}
     result = {}
@@ -67,7 +81,7 @@ def _binance_symbols_with_volume() -> dict[str, float]:
             vol = float(item.get("quoteVolume", 0))
         except (TypeError, ValueError):
             continue
-        if vol >= MIN_VOLUME_USDT:
+        if vol >= min_vol:
             result[sym] = vol
     return result
 
@@ -122,7 +136,7 @@ def _bitget_symbols() -> set[str]:
 def _htx_symbols() -> set[str]:
     """返回 HTX 线性永续合约标的，内部格式如 BTCUSDT。"""
     # HTX 无测试网，始终使用主网
-    data = _get(f"{REST_BASE['htx']}/linear-swap-api/v1/swap_contract_info")
+    data = _get(f"{get_rest_url('htx', testnet=False)}/linear-swap-api/v1/swap_contract_info")
     if not data or data.get("status") != "ok":
         return set()
     result = set()
