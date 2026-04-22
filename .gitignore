@@ -1,0 +1,55 @@
+# Local reference / legacy scripts (not tracked)
+reference/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Virtual env
+.venv/
+venv/
+ENV/
+
+# Local AI / tool state
+.claude/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.Desktop.ini
+Thumbs.db
+
+# Secrets & local env
+.env
+.env.local
+*.pem
+env/
+
+# API Keys & 链上地址（勿提交）
+clients/api_keys.py
+clients/api_keys_live.py
+clients/api_keys_demo.py
+clients/withdrawal_addresses.py
+
+# 本地 Trader 参数（代理、实盘开关等）
+trader/config.py
+
+# 密钥存储目录（如果使用文件方式存储密钥）
+/root/.secrets/
+/root/.secrets_demo/
+*.key
+*.secret
+secrets/
+
+# Runtime logs & tool outputs (regenerate locally)
+logs/*.log
+logs/*.csv
+tools/out/*.csv

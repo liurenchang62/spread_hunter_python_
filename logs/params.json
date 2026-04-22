@@ -1,0 +1,22 @@
+{
+  "BIG_EXCHANGES": [
+    "binance",
+    "okx"
+  ],
+  "SMALL_EXCHANGES": [
+    "gate",
+    "bitget"
+  ],
+  "TOP_N_SYMBOLS": 50,
+  "MIN_VOLUME_USDT": 10000000,
+  "BASELINE_WARMUP_S": 60,
+  "BASELINE_WINDOW": 2000,
+  "LEADER_WINDOW_MS": 1000,
+  "LEADER_MOVE_PCT": 0.3,
+  "ANOMALY_MIN_PCT": 0.5,
+  "CONVERGENCE_PCT": 0.2,
+  "COOLDOWN_MS": 2000,
+  "MIN_SMALL_MID": 1e-06,
+  "SPREAD_SNAP_INTERVAL_S": 1.0,
+  "CONSOLE_STAT_S": 30
+}

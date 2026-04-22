@@ -1,0 +1,68 @@
+# Spread Hunter — 命令行速查
+# 在项目根目录 spread_hunter_python 下执行（PowerShell / CMD）
+
+# ─── 依赖安装（首次） ────────────────────────────────────────────────────────
+pip install aiohttp websockets requests urllib3
+pip install orjson          # 可选，加快 JSON 解析
+
+# ─── 主程序 ─────────────────────────────────────────────────────────────────
+# Tracker + Trader 联合启动（测试网/Demo 模式，LIVE_TRADING_ON=False）
+python main.py
+
+# 主网实盘（需要二次确认输入 YES）
+python main.py --live
+
+# 指定代理（默认读 trader/config.py 中的 PROXY_URL）
+python main.py --proxy http://127.0.0.1:7897
+
+# 仅启动 Tracker（只做行情采集 & 信号检测，不下单）
+python -m tracker.run_tracker
+
+# ─── 功能测试（test/ 目录）──────────────────────────────────────────────────
+# 一键运行所有测试（余额 → 持仓 → 撤单 → 市价下单）
+python -m test.run_all
+
+# 只查询，不产生任何成交
+python -m test.run_all --skip-orders
+
+# 只测某一所
+python -m test.run_all --ex okx
+python -m test.run_all --ex binance --skip-orders
+
+# ── 单项测试
+# 余额查询（各所 USDT 可用余额）
+python -m test.test_balance
+python -m test.test_balance --ex gate
+
+# 持仓 & 挂单查询
+python -m test.test_positions
+python -m test.test_positions --ex binance --symbol BTCUSDT
+
+# 限价单 → 撤单（挂远离市价的限价单，验证撤单流程，不会成交）
+python -m test.test_cancel
+python -m test.test_cancel --ex okx
+
+# 市价单开仓 + 自动平仓（最小仓位，验证下单全流程）
+python -m test.test_orders
+python -m test.test_orders --ex bitget
+python -m test.test_orders --ex binance --symbol ETHUSDT
+
+# 期货 → 现货划转（提币前置步骤，默认 1 USDT）
+# 注意：Binance 测试网不支持此操作（期货/现货 key 独立）
+python -m test.test_transfer
+python -m test.test_transfer --ex okx
+python -m test.test_transfer --amount 5.0
+
+# ─── 配置文件说明 ───────────────────────────────────────────────────────────
+# clients/api_keys.py   — 各所 API Key 路径（测试网 / Demo）
+# clients/config.py     — 交易所 URL、分层（大所/小所）、合约格式转换
+# trader/config.py      — 交易参数（资金比例、止损、超时、风控阈值）
+# tracker/config.py     — 监控参数（监控标的数量、基准窗口、信号阈值）
+
+# ─── 日志输出 ────────────────────────────────────────────────────────────────
+# logs/tracker.log          — Tracker 运行日志
+# logs/main.log             — 主程序日志
+# logs/signals.csv          — 检测到的套利机会信号
+# logs/spread_snapshots.csv — 价差快照（1s 粒度）
+# logs/trades.csv           — 已执行的开/平仓记录 & PnL
+# logs/params.json          — 启动时的参数快照
