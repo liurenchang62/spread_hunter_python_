@@ -12,9 +12,6 @@ python main.py
 # 主网实盘（需要二次确认输入 YES）
 python main.py --live
 
-# 指定代理（默认读 trader/config.py 中的 PROXY_URL）
-python main.py --proxy http://127.0.0.1:7897
-
 # 仅启动 Tracker（只做行情采集 & 信号检测，不下单）
 python -m tracker.run_tracker
 

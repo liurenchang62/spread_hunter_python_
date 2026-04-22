@@ -33,7 +33,7 @@ trader/
 | `api_keys_live.py` | ⚠️ **极高**（实盘，真实资金）| ❌ 禁止 | `chmod 600` |
 | `api_keys_demo.py` | 凭证 | ❌ 禁止 | `chmod 600` |
 | `withdrawal_addresses.py` | 链上地址 | ❌ 禁止 | `chmod 600` |
-| `trader/config.py` | 代理 URL、实盘开关等 | ❌ 禁止 | 按需 |
+| `trader/config.py` | 交易参数、实盘开关等 | ❌ 禁止 | 按需 |
 | `urls.py`, `clients/config.py` | 无 | ✅ 允许 | 普通权限 |
 | `*.example.py` | 无密钥 | ✅ 允许 | 普通权限 |
 

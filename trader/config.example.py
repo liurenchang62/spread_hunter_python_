@@ -1,7 +1,7 @@
 """
 Trader 配置 — 模板（可提交 Git）。
 
-复制为 config.py 后再改代理、资金参数等：
+复制为 config.py 后再改资金参数、风控等：
     copy trader\\config.example.py trader\\config.py
 """
 
@@ -12,10 +12,6 @@ LIVE_TRADING_ON = False   # False = 测试网模拟；True = 主网实盘
 
 # 测试网支持的交易所（HTX 无测试网，暂不参与交易）
 TESTNET_EXCHANGES = {"binance", "okx", "gate", "bitget"}
-
-# ─── 网络代理 ─────────────────────────────────────────────────────────────────
-# 国内访问 OKX / Bitget 可能需要代理，留空则不使用
-PROXY_URL = ""
 
 # ─── 资金结构 ─────────────────────────────────────────────────────────────────
 PAIR_CAPITAL_PCT          = 0.01

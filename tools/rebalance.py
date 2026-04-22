@@ -13,10 +13,8 @@
 用法：
   python tools/rebalance.py             # 干跑：只显示计划，不操作
   python tools/rebalance.py --execute   # 实际执行（每步需要输入确认）
-  python tools/rebalance.py --proxy http://127.0.0.1:7897
 
-Gate 提现注意：需要资金密码 090204（在 Gate 网页端操作时）
-IP 绑定：45.63.61.93
+请在各交易所完成 API 白名单与资金密码等网页端设置；脚本仅通过官方 API 调用。
 """
 
 import argparse
@@ -36,7 +34,6 @@ from clients.withdrawal_addresses import (
     PREFERRED_NETWORKS,
 )
 from trader.exchange_client import build_clients
-from trader.config import PROXY_URL
 
 # ─── 常量 ────────────────────────────────────────────────────────────────────
 TRIGGER_THRESHOLD = 300.0   # 最富裕所余额 - 平均值 超过此值才触发（USDT）
@@ -174,7 +171,7 @@ def _plan_rebalance(balances: dict[str, dict]) -> tuple[str, list[dict]]:
 
 # ─── 主流程 ───────────────────────────────────────────────────────────────────
 
-async def run(execute: bool, proxy: str):
+async def run(execute: bool):
     print(f"\n{C}{'='*60}{W}")
     print(f"{C}  Spread Hunter — 资金再平衡{W}")
     mode_label = f"{R}实际执行{W}" if execute else f"{G}干跑模式（不实际操作）{W}"
@@ -182,7 +179,7 @@ async def run(execute: bool, proxy: str):
     print(f"{C}{'='*60}{W}\n")
 
     # 构建实盘客户端（再平衡只针对真实资金）
-    clients = build_clients(live=True, proxy=proxy)
+    clients = build_clients(live=True, proxy="")
     if not clients:
         _err("无法加载实盘 API Key，请检查 clients/api_keys_live.py")
         return
@@ -341,10 +338,6 @@ def main():
         "--execute", action="store_true",
         help="实际执行（默认为干跑模式，仅显示计划）"
     )
-    parser.add_argument(
-        "--proxy", default=None, metavar="URL",
-        help=f"HTTP 代理（默认 {PROXY_URL}）"
-    )
     args = parser.parse_args()
 
     if args.execute:
@@ -357,8 +350,7 @@ def main():
             print("已取消。")
             return
 
-    proxy = args.proxy if args.proxy is not None else PROXY_URL
-    asyncio.run(run(execute=args.execute, proxy=proxy))
+    asyncio.run(run(execute=args.execute))
 
 
 if __name__ == "__main__":

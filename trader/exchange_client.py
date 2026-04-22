@@ -1198,7 +1198,7 @@ def build_clients(live: bool, proxy: str = "") -> dict[str, BaseClient]:
     
     Args:
         live: True=使用实盘 API，False=使用模拟盘/测试网 API
-        proxy: HTTP 代理地址
+        proxy: HTTP 代理，默认空（直连）
     
     Returns:
         dict: {exchange: client_instance}

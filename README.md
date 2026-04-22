@@ -222,12 +222,12 @@ python -m test.test_orders
 
 #### 4. 启动系统（测试网）
 ```bash
-python main.py --proxy http://127.0.0.1:7897
+python main.py
 ```
 
 #### 5. 启动系统（主网实盘 ⚠️ 慎用）
 ```bash
-python main.py --live --proxy http://127.0.0.1:7897
+python main.py --live
 # 输入 YES 确认后启动
 ```
 
@@ -400,12 +400,12 @@ python -m test.run_all
 
 #### 4. Start System (Testnet)
 ```bash
-python main.py --proxy http://127.0.0.1:7897
+python main.py
 ```
 
 #### 5. Start System (Live Trading ⚠️ Use with caution)
 ```bash
-python main.py --live --proxy http://127.0.0.1:7897
+python main.py --live
 # Type YES to confirm
 ```
 

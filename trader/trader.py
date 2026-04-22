@@ -42,7 +42,6 @@ from trader.config import (
     PAIR_CAPITAL_PCT,
     PAIR_CAPITAL_FALLBACK_USDT,
     MIN_ORDER_NOTIONAL_USDT,
-    PROXY_URL,
     STOP_LOSS_PCT,
     TESTNET_EXCHANGES,
     MARKET_INFO_REFRESH_H,
@@ -72,7 +71,7 @@ class Trader:
         self.tracker = tracker
         self._active = tracker.active_positions
 
-        self._proxy  = proxy or PROXY_URL
+        self._proxy  = proxy or ""
         self.pm      = PositionManager(self._active)
         self.clients = build_clients(live=LIVE_TRADING_ON, proxy=self._proxy)
         self.mi      = MarketInfo()

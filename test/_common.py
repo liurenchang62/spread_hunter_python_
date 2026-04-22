@@ -20,7 +20,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf-8-s
         pass
 
 from trader.exchange_client import build_clients
-from trader.config import PROXY_URL, LIVE_TRADING_ON
+from trader.config import LIVE_TRADING_ON
 
 # ─── 颜色 ───────────────────────────────────────────────────────────────────
 G = "\033[32m"; R = "\033[31m"; Y = "\033[33m"; C = "\033[36m"; W = "\033[0m"
@@ -35,7 +35,7 @@ def section(title): print(f"\n{C}{'─'*52}\n  {title}\n{'─'*52}{W}")
 
 def load_clients(live: bool = False) -> dict:
     """加载所有已配置的交易所客户端（默认测试网/Demo 模式）。"""
-    return build_clients(live=live, proxy=PROXY_URL)
+    return build_clients(live=live, proxy="")
 
 # ─── 测试所 / 测试合约 ─────────────────────────────────────────────────────
 # 每所最小测试合约（BTC USDT-M 永续），用于下单/撤单测试

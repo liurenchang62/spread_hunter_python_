@@ -48,7 +48,7 @@ async def main(targets: list[str], custom_symbol: str):
     clients = load_clients()
     section("市价单下单测试（开仓 + 自动平仓）")
 
-    btc_price = await get_btc_price(proxy=PROXY_URL)
+    btc_price = await get_btc_price(proxy="")
     info(f"BTC 参考价: {btc_price:.2f} USDT")
 
     for name, client in clients.items():

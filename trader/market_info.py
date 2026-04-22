@@ -365,7 +365,7 @@ async def refresh_market_info(
     """
     并发拉取4所的合约规格 + 资金费率，写入 mi 对象。
     symbols：内部格式，如 {"BTCUSDT", "ETHUSDT", ...}
-    proxy：HTTP 代理地址，国内访问 OKX/Bitget 需要传入。
+    proxy：HTTP 代理，默认空字符串（云服务器直连）。
     live：是否实盘模式，影响 Binance 合约规格来源（主网 vs 测试网）
     """
     logger.info(f"[market_info] 开始刷新市场信息（{len(symbols)} 个标的）…")

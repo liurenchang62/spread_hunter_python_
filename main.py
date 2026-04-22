@@ -2,10 +2,8 @@
 主入口：同时启动 Tracker（行情监控）+ Trader（下单执行）。
 
 用法：
-    python main.py                           # 测试网，自动读 PROXY_URL
-    python main.py --proxy http://127.0.0.1:7897
-    python main.py --live                    # 主网实盘（慎用！）
-    python main.py --live --proxy ""         # 主网，无代理
+    python main.py          # 测试网/Demo（云服务器等直连交易所 API）
+    python main.py --live   # 主网实盘（慎用！）
 
 退出码：
     0  — 正常退出（Ctrl+C 或 tracker 完成）
@@ -51,15 +49,13 @@ logger = logging.getLogger("main")
 _EXIT_CODE = 0   # 由 daily_halt_monitor 设置
 
 
-def _banner(live: bool, proxy: str) -> str:
+def _banner(live: bool) -> str:
     mode  = "\033[31m【主网实盘】\033[0m" if live else "\033[32m【测试网/Demo】\033[0m"
-    proxy_s = proxy if proxy else "无"
     return f"""
 \033[36m╔══════════════════════════════════════════════════════════════╗
 ║         Spread Hunter  —  跨所价差套利系统                   ║
 ╚══════════════════════════════════════════════════════════════╝\033[0m
   模式    : {mode}
-  代理    : {proxy_s}
   资金    : 各所最小余额 × {trader_cfg.PAIR_CAPITAL_PCT*100:.1f}% / 对（两腿合计）
   开仓阈值: anomaly >= {trader_cfg.MIN_ANOMALY_TO_OPEN_PCT}%
   日止损  : 余额低于日初 × {trader_cfg.DAILY_HALT_PCT*100:.0f}% 停机
@@ -68,19 +64,16 @@ def _banner(live: bool, proxy: str) -> str:
 """
 
 
-async def _async_main(live: bool, proxy: str) -> int:
+async def _async_main(live: bool) -> int:
     global _EXIT_CODE
 
-    # ── 覆盖配置（live / proxy 可由命令行覆盖 config.py 默认值）─────────────
     trader_cfg.LIVE_TRADING_ON = live
-    if proxy:
-        trader_cfg.PROXY_URL = proxy
 
-    print(_banner(live, trader_cfg.PROXY_URL))
+    print(_banner(live))
 
     # ── 初始化 ────────────────────────────────────────────────────────────────
     tracker = Tracker()
-    trader  = Trader(tracker, proxy=trader_cfg.PROXY_URL)
+    trader  = Trader(tracker)
 
     # ── 优雅退出处理 ──────────────────────────────────────────────────────────
     loop = asyncio.get_running_loop()
@@ -175,10 +168,6 @@ def main():
         "--live", action="store_true",
         help="主网实盘模式（默认为测试网/Demo）"
     )
-    parser.add_argument(
-        "--proxy", default=None, metavar="URL",
-        help="HTTP 代理地址，例如 http://127.0.0.1:7897（留空则用 config.py 的 PROXY_URL）"
-    )
     args = parser.parse_args()
 
     if args.live:
@@ -190,10 +179,8 @@ def main():
             print("已取消。")
             return
 
-    proxy = args.proxy if args.proxy is not None else trader_cfg.PROXY_URL
-
     try:
-        exit_code = asyncio.run(_async_main(live=args.live, proxy=proxy))
+        exit_code = asyncio.run(_async_main(live=args.live))
     except KeyboardInterrupt:
         exit_code = 0
 
