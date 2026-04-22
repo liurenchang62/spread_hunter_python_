@@ -10,7 +10,7 @@ from pathlib import Path
 # ─── 主开关 ───────────────────────────────────────────────────────────────────
 LIVE_TRADING_ON = False   # False = 测试网模拟；True = 主网实盘
 
-# 测试网支持的交易所（HTX 无测试网，暂不参与交易）
+# 测试网支持的交易所（与 ACTIVE_EXCHANGES 一致）
 TESTNET_EXCHANGES = {"binance", "okx", "gate", "bitget"}
 
 # ─── 资金结构 ─────────────────────────────────────────────────────────────────

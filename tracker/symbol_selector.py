@@ -1,10 +1,10 @@
 """
-标的筛选：在5个交易所都有的 USDT-M 永续合约，按24h成交额排序取前N个。
+标的筛选：在 ACTIVE_EXCHANGES 各所都有的 USDT-M 永续合约，按24h成交额排序取前N个。
 
 流程：
-  1. 从 Binance FAPI 拉所有 USDT-M 合约 + 24h 成交额
-  2. 从其余4所分别拉合约列表，构建各所可用标的集合
-  3. 取5所的交集，按 Binance 成交额排序，返回前 TOP_N 个标的
+  1. 从 Binance FAPI 拉 USDT-M 合约 + 24h 成交额（主网失败则回退测试网）
+  2. 从其余所拉合约列表，构建各所可用标的集合
+  3. 取各所交集，按 Binance 侧成交额排序，返回前 TOP_N 个标的
   4. 每 SYMBOL_REFRESH_H 小时刷新一次
 
 返回的标的格式：内部格式 BTCUSDT（Binance 风格，大写，无分隔符）
@@ -133,22 +133,6 @@ def _bitget_symbols() -> set[str]:
     return result
 
 
-def _htx_symbols() -> set[str]:
-    """返回 HTX 线性永续合约标的，内部格式如 BTCUSDT。"""
-    # HTX 无测试网，始终使用主网
-    data = _get(f"{get_rest_url('htx', testnet=False)}/linear-swap-api/v1/swap_contract_info")
-    if not data or data.get("status") != "ok":
-        return set()
-    result = set()
-    for item in data.get("data", []):
-        code   = item.get("contract_code", "")   # 格式: BTC-USDT
-        status = item.get("contract_status", 0)  # 1 = 正常
-        if code.endswith("-USDT") and status == 1:
-            base = code.replace("-USDT", "")
-            result.add(f"{base}USDT")
-    return result
-
-
 # ─── 主逻辑 ───────────────────────────────────────────────────────────────────
 
 # ─── 交易所标获取函数字典 ─────────────────────────────────────────────────────
@@ -157,7 +141,6 @@ _SYMBOL_FETCHERS = {
     "okx":     _okx_symbols,
     "gate":    _gate_symbols,
     "bitget":  _bitget_symbols,
-    "htx":     _htx_symbols,
 }
 
 

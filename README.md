@@ -14,7 +14,7 @@ Spread Hunter 是一个**跨交易所价差套利系统**，通过监控多家�
 **核心特点：**
 - **统计套利策略**：基于滚动中位数基准线，捕捉大所异动→小所延迟的价差机会
 - **全自动化**：行情监控、信号检测、风险评估、下单执行、持仓管理全流程自动化
-- **多交易所支持**：同时监控 5 家交易所（Binance、OKX、Gate、Bitget、HTX）
+- **多交易所支持**：同时监控 4 家交易所（Binance、OKX、Gate、Bitget）
 - **实时风控**：日止损、最大敞口、持仓超时、紧急平仓等多重保护机制
 - **Latest-Wins 架构**：同一交易对的新信号自动取消旧任务，确保执行最新行情
 
@@ -27,7 +27,7 @@ spread_hunter_python/
 ├── main.py                    # 主入口：启动 Tracker + Trader
 ├── tracker/                   # 行情监控模块
 │   ├── tracker.py            # 主控制器：协调各组件
-│   ├── ws_feed.py            # WebSocket 行情接收（5所并发）
+│   ├── ws_feed.py            # WebSocket 行情接收（多所并发）
 │   ├── baseline.py           # 滚动中位数基准线计算
 │   ├── signal_detector.py    # 异常检测算法（opportunity 信号生成）
 │   ├── symbol_selector.py    # 动态标的筛选（按成交额排序）
@@ -267,7 +267,7 @@ LEADER_MOVE_PCT = 0.5              # 大所异动检测阈值
 **Key Features:**
 - **Statistical Arbitrage**: Based on rolling median baselines, captures price discrepancies where major exchanges lead and smaller exchanges lag
 - **Fully Automated**: End-to-end automation from market data ingestion to position management
-- **Multi-Exchange**: Monitors 5 exchanges simultaneously (Binance, OKX as majors; Gate, Bitget, HTX as minors)
+- **Multi-Exchange**: Monitors 4 exchanges simultaneously (Binance, OKX as majors; Gate, Bitget as minors)
 - **Risk Management**: Daily loss limits, max exposure controls, position timeouts, emergency liquidation
 - **Latest-Wins Architecture**: New signals for the same pair automatically cancel pending tasks, ensuring execution on the freshest data
 

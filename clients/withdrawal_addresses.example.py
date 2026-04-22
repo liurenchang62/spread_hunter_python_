@@ -9,7 +9,6 @@ ADDRESSES: dict[str, dict[str, str]] = {
     "okx":     {"SOL": "", "TRX": "", "ETH": "", "BSC": "", "ARB": "", "AVAX": ""},
     "gate":    {"SOL": "", "TRX": "", "ETH": "", "BSC": "", "ARB": "", "AVAX": ""},
     "bitget":  {"SOL": "", "TRX": "", "ETH": "", "BSC": "", "ARB": ""},
-    "htx":     {"SOL": "", "TRX": "", "ETH": "", "BSC": "", "ARB": ""},
 }
 
 NETWORK_NAMES: dict[str, dict[str, str]] = {

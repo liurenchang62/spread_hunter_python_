@@ -15,12 +15,10 @@ EXCHANGE_TIERS = {
     "okx":     "big",
     "gate":    "small",
     "bitget":  "small",
-    "htx":     "small",
 }
 
 # ─── 参与交易的交易所列表（可自由配置）──────────────────────────────────────
 # 只有在此列表中的交易所才会被初始化和用于交易
-# HTX 无测试网，默认不参与模拟盘交易
 ACTIVE_EXCHANGES: list[str] = ["binance", "okx", "gate", "bitget"]
 
 # 根据 ACTIVE_EXCHANGES 动态计算大所/小所列表
@@ -47,7 +45,6 @@ WS_URLS: dict[str, str] = {
     "okx":     "wss://ws.okx.com:8443/ws/v5/public",    # OKX 公共频道
     "gate":    "wss://fx-ws.gateio.ws/v4/ws/usdt",      # Gate USDT 永续
     "bitget":  "wss://ws.bitget.com/v2/ws/public",      # Bitget USDT-M
-    "htx":     "wss://api.hbdm.com/linear-swap-ws",     # HTX 线性永续
 }
 
 # ─── REST 地址（主网）─────────────────────────────────────────────────────────
@@ -56,7 +53,6 @@ REST_BASE: dict[str, str] = {
     "okx":     "https://www.okx.com",
     "gate":    "https://api.gateio.ws",
     "bitget":  "https://api.bitget.com",
-    "htx":     "https://api.hbdm.com",
 }
 
 # ─── 测试网 WebSocket 地址 ───────────────────────────────────────────────────
@@ -67,7 +63,6 @@ TESTNET_WS_URLS: dict[str, str] = {
     "okx":     "wss://ws.okx.com:8443/ws/v5/public",       # OKX Demo 同主网地址，靠 header 区分
     "gate":    "wss://fx-ws-testnet.gateio.ws/v4/ws/usdt",  # Gate 独立测试网
     "bitget":  "wss://ws.bitget.com/v2/ws/public",          # Bitget Demo 同主网地址，靠 header 区分
-    # "htx":   "",  # HTX 无测试网
 }
 
 # ─── 测试网 REST 地址（下单用）──────────────────────────────────────────────
@@ -76,7 +71,6 @@ TESTNET_REST_BASE: dict[str, str] = {
     "okx":     "https://www.okx.com",                       # OKX Demo 同主网，靠 x-simulated-trading:1 区分
     "gate":    "https://api-testnet.gateapi.io",              # Gate 独立测试网
     "bitget":  "https://api.bitget.com",                    # Bitget Demo 同主网，靠 paptrading:1 区分
-    # "htx":   "",  # HTX 无测试网，暂不支持
 }
 
 # ─── 标的格式转换 ────────────────────────────────────────────────────────────
@@ -102,8 +96,6 @@ def to_exchange_fmt(symbol: str, exchange: str) -> str:
         return f"{base}_USDT"                       # BTC_USDT
     elif exchange == "bitget":
         return symbol                               # BTCUSDT
-    elif exchange == "htx":
-        return f"{base}-USDT"                       # BTC-USDT
     return symbol
 
 
@@ -130,7 +122,4 @@ def from_raw_symbol(raw: str, exchange: str) -> Optional[str]:
             return r.replace("_USDT", "") + "USDT"
     elif exchange == "bitget":
         return r if r.endswith("USDT") else None
-    elif exchange == "htx":
-        if r.endswith("-USDT"):
-            return r.replace("-USDT", "") + "USDT"
     return None

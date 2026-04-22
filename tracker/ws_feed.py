@@ -1,15 +1,14 @@
 """
-5所 WebSocket 行情接入。每个交易所一个独立的 async task，自动重连。
+各所 WebSocket 行情接入（由 ACTIVE_EXCHANGES 决定）。每所一个独立的 async task，自动重连。
 
 交易所配置从 clients 模块导入：
-    from clients import WS_URLS, ALL_EXCHANGES, to_exchange_fmt, from_raw_symbol
+    from clients import ALL_EXCHANGES, to_exchange_fmt, from_raw_symbol, get_ws_url
 
-支持交易所（全部永续合约 / USDT-M）：
+支持（全部 USDT-M 永续）：
   - Binance   fstream combined bookTicker
   - OKX       books5 channel (SWAP)
   - Gate      futures.book_ticker channel
   - Bitget    books1 channel (USDT-FUTURES)
-  - HTX       linear-swap-ws BBO (api.hbdm.com，非现货)
 
 内部标的格式：BTCUSDT（大写，无分隔符）
 """
@@ -49,10 +48,9 @@ TickCallback = Callable[[Tick], None]
 def _parse(exchange: str, raw, symbol_set: set[str]) -> Optional[Tick]:
     """
     解析原始 WS 消息，返回 Tick 或 None。
-    raw 可能是 str 或 bytes（HTX gzip）。
+    raw 一般为 str；少数情况下为 bytes（尝试 gzip 解压）。
     symbol_set 是当前监控的内部标的集合，用于过滤不感兴趣的标的。
     """
-    # HTX gzip 解压
     if isinstance(raw, bytes):
         try:
             raw = gzip.decompress(raw)
@@ -109,24 +107,6 @@ def _parse(exchange: str, raw, symbol_set: set[str]) -> Optional[Tick]:
                     if bis and ais:
                         return Tick("bitget", sym, float(bis[0][0]), float(ais[0][0]))
 
-        elif exchange == "htx":
-            # {"ch":"market.BTC-USDT.bbo","tick":{"bid":[px,sz],"ask":[px,sz],...}}
-            ch = d.get("ch", "")
-            td = d.get("tick")
-            if td and "bbo" in ch:
-                # 从 ch 里提取合约代码: "market.BTC-USDT.bbo" → "BTC-USDT"
-                parts = ch.split(".")
-                raw_sym = parts[1] if len(parts) >= 2 else ""
-                sym = from_raw_symbol(raw_sym, "htx")
-                if sym and sym in symbol_set:
-                    # linear-swap 返回 [price, size] 数组，spot 返回 float，两种都兼容
-                    bid_raw = td.get("bid", 0)
-                    ask_raw = td.get("ask", 0)
-                    bid = float(bid_raw[0]) if isinstance(bid_raw, (list, tuple)) else float(bid_raw)
-                    ask = float(ask_raw[0]) if isinstance(ask_raw, (list, tuple)) else float(ask_raw)
-                    if bid > 0 and ask > 0:
-                        return Tick("htx", sym, bid, ask)
-
     except (KeyError, IndexError, ValueError, TypeError):
         pass
 
@@ -160,14 +140,6 @@ def _build_sub(exchange: str, symbols: list[str]) -> list[str] | str | None:
         ]
         return _dumps({"op": "subscribe", "args": args})
 
-    if exchange == "htx":
-        # HTX 每个标的单独一条订阅消息
-        msgs = []
-        for s in symbols:
-            contract = to_exchange_fmt(s, "htx")
-            msgs.append(_dumps({"sub": f"market.{contract}.bbo", "id": f"bbo_{s}"}))
-        return msgs
-
     return None
 
 
@@ -187,7 +159,6 @@ async def _heartbeat_loop(exchange: str, ws, interval: int = 20):
     """
     OKX / Bitget：每 20s 发一次文本 "ping"。
     Binance / Gate：WS 协议级 ping 由 websockets 库自动处理，不需要这里管。
-    HTX：服务端主动推 {"ping":ts}，在 _run 里处理，这里不用额外发。
     """
     if exchange not in ("okx", "bitget"):
         return
@@ -222,7 +193,7 @@ async def _run_exchange(
                 ping_interval=20,
                 ping_timeout=10,
                 max_size=2 ** 21,   # 2MB
-                compression=None,   # 手动解 gzip（HTX）
+                compression=None,
                 open_timeout=10,
             ) as ws:
                 was_connected = exchange in connected
@@ -249,22 +220,6 @@ async def _run_exchange(
                     async for raw in ws:
                         if stop_event.is_set():
                             break
-
-                        # HTX 心跳：服务端推 {"ping": ts}，需要回 {"pong": ts}
-                        if exchange == "htx":
-                            try:
-                                data = raw
-                                if isinstance(raw, bytes):
-                                    try:
-                                        data = gzip.decompress(raw)
-                                    except Exception:
-                                        pass
-                                d = _loads(data)
-                                if "ping" in d:
-                                    await ws.send(_dumps({"pong": d["ping"]}))
-                                    continue
-                            except Exception:
-                                pass
 
                         tick = _parse(exchange, raw, symbol_set)
                         if tick:
@@ -295,7 +250,7 @@ async def _run_exchange(
 
 class WSFeed:
     """
-    管理5个交易所的 WebSocket 连接。
+    管理各交易所的 WebSocket 连接（ALL_EXCHANGES）。
     使用方式：
         feed = WSFeed(symbols, on_tick_callback)
         await feed.start()          # 非阻塞，返回后各连接在后台运行

@@ -2,8 +2,8 @@
 主控制器。入口：python -m tracker.tracker
 
 运行流程：
-  1. 拉取标的列表（5所交集，按成交额排序）
-  2. 启动5所 WebSocket
+  1. 拉取标的列表（各所交集，按成交额排序）
+  2. 启动 WebSocket（ALL_EXCHANGES）
   3. 每个 tick：更新基准 → 检测机会 → 写日志
   4. 每 CONSOLE_STAT_S 秒打印一次终端统计
   5. 每 SYMBOL_REFRESH_H 小时后台刷新标的列表
@@ -27,7 +27,7 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
         pass
 
 from .config import CONSOLE_STAT_S, LOGS_DIR
-from clients import BIG_EXCHANGES, SMALL_EXCHANGES
+from clients import ALL_EXCHANGES, BIG_EXCHANGES, SMALL_EXCHANGES
 from .models import Tick, MarketEvent
 from .symbol_selector import SymbolSelector
 from .ws_feed import WSFeed
@@ -177,7 +177,8 @@ class Tracker:
                 break
             await asyncio.sleep(0.5)
         n = self.feed.n_connected if self.feed else 0
-        logger.info(f"已连接 {n}/5 所 ({', '.join(sorted(self.feed.connected)) if self.feed else ''})")
+        n_ex = len(ALL_EXCHANGES)
+        logger.info(f"已连接 {n}/{n_ex} 所 ({', '.join(sorted(self.feed.connected)) if self.feed else ''})")
 
     async def _main_loop(self):
         """后台维护循环：定期打印统计、刷新标的列表。"""
@@ -270,7 +271,8 @@ class Tracker:
         )
         print(f"  运行时长: {elapsed/60:.1f} 分钟")
         print(f"  Tick总数: {self._tick_count:,}  ({tps:.0f}/s)")
-        print(f"  已连接:   {n_connected}/5 所 ({', '.join(sorted(self.feed.connected)) if self.feed else ''})")
+        n_ex = len(ALL_EXCHANGES)
+        print(f"  已连接:   {n_connected}/{n_ex} 所 ({', '.join(sorted(self.feed.connected)) if self.feed else ''})")
         print(f"  热身状态: {'[完成]' if bs['warmed_up'] else '[进行中]'}")
         print(f"  价差基准: {bs['pair_baselines']} 对  盘口基准: {bs['ba_baselines']} 个")
         print(f"  机会数:   {self.detector.total_signals}")
@@ -311,7 +313,7 @@ def _banner() -> str:
 ╔══════════════════════════════════════════════════════════════╗
 ║  Spread Tracker v1  —  跨所价差跟踪（仅观测，不交易）        ║
 ║  大所异动 → 小所延迟 → 记录信号和价差数据                  ║
-║  交易所: Binance / OKX (大) + Gate / Bitget / HTX (小)      ║
+║  交易所: Binance / OKX (大) + Gate / Bitget (小)            ║
 ║  输出: logs/spread_snapshots.csv  logs/signals.csv           ║
 ╚══════════════════════════════════════════════════════════════╝"""
 
