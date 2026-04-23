@@ -37,7 +37,7 @@ scp D:\spread_hunter_python\trader\config.py root@你的服务器IP:/root/spread
 # 实盘密钥（仅当服务器要跑 --live 时）
 scp D:\spread_hunter_python\clients\api_keys_live.py root@你的服务器IP:/root/spread_hunter_python/clients/
 
-# 再平衡提币地址（仅当使用 tools/rebalance.py 时）
+# 再平衡提币地址（实盘：python3 -m rebalance.run 或 main.py --live 下自动再平衡时需要）
 scp D:\spread_hunter_python\clients\withdrawal_addresses.py root@你的服务器IP:/root/spread_hunter_python/clients/
 
 # 拷完建议在服务器上执行（SSH 登录后）：
