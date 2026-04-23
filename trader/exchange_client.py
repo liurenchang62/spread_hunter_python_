@@ -655,10 +655,18 @@ class OKXClient(BaseClient):
         def _chain_matches(chain: str, want: str) -> bool:
             if not chain or not want:
                 return False
-            tail = chain.split("-", 1)[-1].strip()
-            if tail.upper() == want.upper():
+            cu, wu = chain.upper(), want.upper()
+            tail = chain.split("-", 1)[-1].strip().upper()
+            if tail == wu:
                 return True
-            return want.upper() in chain.upper()
+            if wu in cu:
+                return True
+            # OKX 部分链全名较长，内部码需宽松匹配
+            if wu == "BSC" and ("BEP20" in cu or "BSC" in cu):
+                return True
+            if wu == "AVAX" and "AVAX" in cu:
+                return True
+            return False
 
         try:
             sess = await self._sess()
@@ -715,10 +723,11 @@ class OKXClient(BaseClient):
 class GateClient(BaseClient):
     exchange = "gate"
 
-    def _sign(self, method: str, path: str, body: str = "") -> dict:
+    def _sign(self, method: str, path: str, body: str = "", query: str = "") -> dict:
+        # Gate v4：GET 带 query 时签名字符串第三段为 query_string（见官方 gen_sign）
         ts        = str(int(time.time()))
         body_hash = hashlib.sha512(body.encode() if body else b"").hexdigest()
-        msg       = f"{method.upper()}\n{path}\n\n{body_hash}\n{ts}"
+        msg       = f"{method.upper()}\n{path}\n{query}\n{body_hash}\n{ts}"
         sig       = hmac.new(self.keys["secret"].encode(), msg.encode(), hashlib.sha512).hexdigest()
         return {"KEY": self.keys["key"], "SIGN": sig,
                 "Timestamp": ts, "Content-Type": "application/json"}
@@ -890,24 +899,42 @@ class GateClient(BaseClient):
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:
         from clients.withdrawal_addresses import get_api_network_name
         api_net = get_api_network_name("gate", network)
-        path = "/api/v4/withdraw/status?currency=USDT"
+        # 官方：GET /api/v4/wallet/withdraw_status（不是 /withdraw/status）
+        path = "/api/v4/wallet/withdraw_status"
+        query = "currency=USDT"
+
+        # withdraw_fix_on_chains 的键常见为链代号；与提币参数 chain 可能为 ETH 或 ERC20 等，多别名尝试
+        _GATE_FEE_ALIASES: dict[str, tuple[str, ...]] = {
+            "ETH": ("ETH", "ERC20"),
+            "TRX": ("TRX", "TRC20"),
+            "BSC": ("BSC", "BEP20", "BNB"),
+            "SOL": ("SOL",),
+            "ARB": ("ARB", "ARBITRUM", "ARBEVM"),
+            "AVAX": ("AVAX", "AVAX_C", "AVAXC"),
+            "OP": ("OP", "OPTIMISM", "OPETH"),
+        }
 
         def _fee_from_fix_map(fix_map: dict, want: str) -> Optional[float]:
             if not fix_map or not want:
                 return None
-            wu = want.upper()
-            for k, v in fix_map.items():
-                if str(k).upper() == wu:
-                    try:
-                        return float(v)
-                    except (TypeError, ValueError):
-                        return None
+            candidates = [want.upper()]
+            for a in _GATE_FEE_ALIASES.get(want.upper(), ()):
+                if a.upper() not in candidates:
+                    candidates.append(a.upper())
+            for wu in candidates:
+                for k, v in fix_map.items():
+                    if str(k).upper() == wu:
+                        try:
+                            return float(v)
+                        except (TypeError, ValueError):
+                            return None
             return None
 
         try:
             sess = await self._sess()
+            url = f"{self.base}{path}?{query}"
             async with sess.get(
-                f"{self.base}{path}", headers=self._sign("GET", path),
+                url, headers=self._sign("GET", path, "", query),
                 ssl=False, timeout=aiohttp.ClientTimeout(total=5), **self._px(),
             ) as r:
                 data = await r.json()
@@ -1274,7 +1301,8 @@ class BitgetClient(BaseClient):
         from clients.withdrawal_addresses import get_api_network_name
         # Bitget 公开接口，无需签名
         api_net = get_api_network_name("bitget", network)
-        path = "/api/v2/public/coins?coin=USDT"
+        # 官方：GET /api/v2/spot/public/coins（/api/v2/public/coins 无效）
+        path = "/api/v2/spot/public/coins?coin=USDT"
         try:
             sess = await self._sess()
             async with sess.get(
@@ -1289,7 +1317,7 @@ class BitgetClient(BaseClient):
                             if str(chain.get("chain", "")).upper() != api_net.upper():
                                 continue
                             w = chain.get("withdrawable")
-                            if w not in (True, "true", "True", 1, "1"):
+                            if w not in (True, "true", "True", 1, "1", "yes"):
                                 continue
                             raw = chain.get("withdrawFee") or chain.get("withdraw_fee") or "0"
                             try:
