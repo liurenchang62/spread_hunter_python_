@@ -93,7 +93,7 @@ def print_path_matrix(all_fees: dict[str, dict[str, FeeInfo]], filter_src: str |
                     )
                     diff = hub_best.total_fee - best.total_fee
                     second_label = (
-                        f"中转via{hub_best.dst}={hf} "
+                        f"中转 via {hub_best.dst} = {hf} "
                         f"({'贵' if diff > 0 else '便宜'}{abs(diff):.4f}U)"
                     )
             else:
