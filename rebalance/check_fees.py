@@ -37,7 +37,7 @@ def print_exchange_fee_table(exchange: str, fee_map: dict[str, FeeInfo]):
         fi = fee_map.get(net)
         if fi is None:
             continue
-        if not fi.fee_known and not fi.has_addr:
+        if not fi.known and not fi.has_addr:
             continue   # 该所完全不支持此网络，跳过
         has_any = True
         fee_s  = f"{fi.fee:.4f}" if fi.fee is not None else f"{Y}N/A{W} "
@@ -178,29 +178,29 @@ async def run(args):
     print(f"{C}{'═'*70}{W}")
 
     clients = load_live_clients()
+    try:
+        print(f"\n{C}正在并发查询各交易所手续费…{W}")
+        all_fees = await fetch_all_fees(clients)
 
-    print(f"\n{C}正在并发查询各交易所手续费…{W}")
-    all_fees = await fetch_all_fees(clients)
+        # ── 各所费用表 ──────────────────────────────────────────────────────────
+        hdr("各交易所提现手续费（USDT）")
+        target_ex = [args.ex] if args.ex else EXCHANGES
+        for ex in target_ex:
+            if ex not in all_fees:
+                warn(f"{ex}: 未配置实盘 API Key 或查询失败，跳过")
+                continue
+            print_exchange_fee_table(ex, all_fees[ex])
 
-    # ── 各所费用表 ──────────────────────────────────────────────────────────
-    hdr("各交易所提现手续费（USDT）")
-    target_ex = [args.ex] if args.ex else EXCHANGES
-    for ex in target_ex:
-        if ex not in all_fees:
-            warn(f"{ex}: 未配置实盘 API Key 或查询失败，跳过")
-            continue
-        print_exchange_fee_table(ex, all_fees[ex])
+        # ── 路径矩阵 ────────────────────────────────────────────────────────────
+        if len(all_fees) > 1:
+            print_path_matrix(all_fees, filter_src=args.ex)
 
-    # ── 路径矩阵 ────────────────────────────────────────────────────────────
-    if len(all_fees) > 1:
-        print_path_matrix(all_fees, filter_src=args.ex)
-
-    print(f"\n{C}{'═'*70}{W}")
-    print(f"  注：手续费为实时 API 数据，N/A 表示该交易所 API 未返回此网络费用。")
-    print(f"  所有手续费均为动态，可随网络拥堵程度随时变化。")
-    print(f"{C}{'═'*70}{W}\n")
-
-    await close_all(clients)
+        print(f"\n{C}{'═'*70}{W}")
+        print(f"  注：手续费为实时 API 数据，N/A 表示该交易所 API 未返回此网络费用。")
+        print(f"  所有手续费均为动态，可随网络拥堵程度随时变化。")
+        print(f"{C}{'═'*70}{W}\n")
+    finally:
+        await close_all(clients)
 
 
 def main():
