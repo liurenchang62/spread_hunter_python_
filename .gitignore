@@ -53,3 +53,6 @@ secrets/
 logs/*.log
 logs/*.csv
 tools/out/*.csv
+
+# 本地部署脚本（勿提交密码）
+_deploy.ps1

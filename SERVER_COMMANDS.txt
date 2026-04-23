@@ -1,15 +1,12 @@
 # Spread Hunter — 服务器常用命令（速查）
 # 与 RUN.txt 配套：本文件专写「本机 ↔ 服务器」操作。
-# 路径、IP 请按你的环境替换。
+# 默认 IP：45.76.202.248（若仓库公开托管，介意暴露 IP 可改回占位符或只用环境变量 + scripts/sync_secrets_to_server.ps1）
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 1. 进入服务器（在本机 PowerShell 执行）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ssh root@你的服务器公网IP
-
-# 示例（勿照抄 IP，以 Vultr 控制台为准）：
-# ssh root@45.76.202.248
+ssh root@45.76.202.248
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -29,16 +26,21 @@ git pull origin main
 # 3. 将本机「未进 Git」的配置/密钥推到服务器（在本机 PowerShell 执行）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 下列文件通常在 .gitignore 中，需用 scp 单独同步。
-
+#
+# 一键同步（推荐，在本机 PowerShell、仓库根目录执行；依赖 SSH 密钥登录）：
+#   powershell -ExecutionPolicy Bypass -File .\scripts\sync_secrets_to_server.ps1
+# 或指定主机：powershell -ExecutionPolicy Bypass -File .\scripts\sync_secrets_to_server.ps1 -Server "你的IP"
+#
+# 手动逐条（路径按你本机盘符修改）：
 # 模拟盘 + 交易参数（必拷，跑 python main.py Demo 需要）
-scp D:\spread_hunter_python\clients\api_keys_demo.py root@你的服务器IP:/root/spread_hunter_python/clients/
-scp D:\spread_hunter_python\trader\config.py root@你的服务器IP:/root/spread_hunter_python/trader/
+scp D:\spread_hunter_python\clients\api_keys_demo.py root@45.76.202.248:/root/spread_hunter_python/clients/
+scp D:\spread_hunter_python\trader\config.py root@45.76.202.248:/root/spread_hunter_python/trader/
 
 # 实盘密钥（仅当服务器要跑 --live 时）
-scp D:\spread_hunter_python\clients\api_keys_live.py root@你的服务器IP:/root/spread_hunter_python/clients/
+scp D:\spread_hunter_python\clients\api_keys_live.py root@45.76.202.248:/root/spread_hunter_python/clients/
 
 # 再平衡提币地址（实盘：python3 -m rebalance.run 或 main.py --live 下自动再平衡时需要）
-scp D:\spread_hunter_python\clients\withdrawal_addresses.py root@你的服务器IP:/root/spread_hunter_python/clients/
+scp D:\spread_hunter_python\clients\withdrawal_addresses.py root@45.76.202.248:/root/spread_hunter_python/clients/
 
 # 拷完建议在服务器上执行（SSH 登录后）：
 # chmod 600 /root/spread_hunter_python/clients/api_keys_demo.py \

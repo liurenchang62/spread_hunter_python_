@@ -98,13 +98,13 @@ USE_KEY_FILES = True  # 启用文件读取模式
 
 ```bash
 # 本地
-scp -r spread_hunter_python root@45.63.61.93:/root/
+scp -r spread_hunter_python root@45.76.202.248:/root/
 ```
 
 ### 2. 运行部署脚本
 
 ```bash
-ssh root@45.63.61.93
+ssh root@45.76.202.248
 cd /root/spread_hunter_python
 chmod +x deploy_server.sh
 ./deploy_server.sh
