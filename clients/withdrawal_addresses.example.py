@@ -13,9 +13,18 @@ ADDRESSES: dict[str, dict[str, str]] = {
 
 NETWORK_NAMES: dict[str, dict[str, str]] = {
     "binance": {"SOL": "SOL", "BSC": "BSC", "TRX": "TRX", "ETH": "ETH"},
-    "okx":     {"SOL": "Solana", "BSC": "BSC", "TRX": "TRC20", "ETH": "ERC20"},
-    "gate":    {"SOL": "SOL", "BSC": "BSC", "TRX": "TRX", "ETH": "ETH"},
-    "bitget":  {"SOL": "SOL", "BSC": "BEP20", "TRX": "TRC20", "ETH": "ERC20"},
+    # OKX chain 为 USDT-xxx，匹配取首段后的后缀（见 exchange_client）
+    "okx": {
+        "SOL": "Solana", "BSC": "BSC", "TRX": "TRC20", "ETH": "ERC20",
+        "ARB": "Arbitrum One", "AVAX": "AVAXC", "OP": "Optimism",
+    },
+    # Gate：手续费字典键与提币参数 chain 一致；若某链仍为 N/A，请对照
+    # GET /api/v4/withdraw/status?currency=USDT 里 withdraw_fix_on_chains 的键名自行补全。
+    "gate": {
+        "SOL": "SOL", "BSC": "BSC", "TRX": "TRX", "ETH": "ETH",
+        "ARB": "ARB", "AVAX": "AVAX", "OP": "OP",
+    },
+    "bitget": {"SOL": "SOL", "BSC": "BEP20", "TRX": "TRC20", "ETH": "ERC20"},
 }
 
 PREFERRED_NETWORKS = ["SOL", "BSC", "TRX", "ETH"]

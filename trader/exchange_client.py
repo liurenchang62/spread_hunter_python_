@@ -651,6 +651,15 @@ class OKXClient(BaseClient):
         from clients.withdrawal_addresses import get_api_network_name
         path = "/api/v5/asset/currencies?ccy=USDT"
         api_net = get_api_network_name("okx", network)
+
+        def _chain_matches(chain: str, want: str) -> bool:
+            if not chain or not want:
+                return False
+            tail = chain.split("-", 1)[-1].strip()
+            if tail.upper() == want.upper():
+                return True
+            return want.upper() in chain.upper()
+
         try:
             sess = await self._sess()
             async with sess.get(
@@ -660,9 +669,17 @@ class OKXClient(BaseClient):
                 data = await r.json()
             if data.get("code") == "0":
                 for item in (data.get("data") or []):
-                    if item.get("ccy") == "USDT" and item.get("chain", "").split("-")[-1].upper() == api_net.upper():
-                        if item.get("canWd"):
-                            return float(item.get("minFee", 0))
+                    if item.get("ccy") != "USDT":
+                        continue
+                    chain = item.get("chain") or ""
+                    if not _chain_matches(chain, api_net):
+                        continue
+                    if not item.get("canWd"):
+                        continue
+                    raw = item.get("minFee")
+                    if raw is None or raw == "":
+                        continue
+                    return float(raw)
         except Exception as e:
             logger.debug(f"[okx] 提现手续费查询失败: {e}")
         return None
@@ -873,7 +890,20 @@ class GateClient(BaseClient):
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:
         from clients.withdrawal_addresses import get_api_network_name
         api_net = get_api_network_name("gate", network)
-        path = f"/api/v4/withdraw/status?currency=USDT"
+        path = "/api/v4/withdraw/status?currency=USDT"
+
+        def _fee_from_fix_map(fix_map: dict, want: str) -> Optional[float]:
+            if not fix_map or not want:
+                return None
+            wu = want.upper()
+            for k, v in fix_map.items():
+                if str(k).upper() == wu:
+                    try:
+                        return float(v)
+                    except (TypeError, ValueError):
+                        return None
+            return None
+
         try:
             sess = await self._sess()
             async with sess.get(
@@ -883,13 +913,27 @@ class GateClient(BaseClient):
                 data = await r.json()
             if isinstance(data, list):
                 for item in data:
-                    if item.get("currency") == "USDT":
-                        chains = item.get("chains") or []
-                        for chain in chains:
-                            if chain.get("chain", "").upper() == api_net.upper():
-                                if chain.get("is_withdraw_disabled") == 0:
-                                    return float(chain.get("withdraw_fix_on_chains") or
-                                                 chain.get("withdraw_percent_on_chains", {}).get("fix", 0) or 0)
+                    if item.get("currency") != "USDT":
+                        continue
+                    # 官方文档：手续费在 withdraw_fix_on_chains（按链名的字典），不是 chains 数组
+                    fee = _fee_from_fix_map(item.get("withdraw_fix_on_chains") or {}, api_net)
+                    if fee is not None:
+                        return fee
+                    # 兼容旧版/部分环境返回的 chains 列表
+                    for chain in item.get("chains") or []:
+                        if str(chain.get("chain", "")).upper() == api_net.upper():
+                            if chain.get("is_withdraw_disabled") == 0:
+                                raw = chain.get("withdraw_fix_on_chains")
+                                if isinstance(raw, dict):
+                                    f2 = _fee_from_fix_map(raw, api_net)
+                                    if f2 is not None:
+                                        return f2
+                                raw2 = chain.get("withdraw_fee") or chain.get("withdrawFix")
+                                if raw2 is not None and raw2 != "":
+                                    try:
+                                        return float(raw2)
+                                    except (TypeError, ValueError):
+                                        pass
         except Exception as e:
             logger.debug(f"[gate] 提现手续费查询失败: {e}")
         return None
@@ -1242,9 +1286,16 @@ class BitgetClient(BaseClient):
                 for item in (data.get("data") or []):
                     if item.get("coin") == "USDT":
                         for chain in (item.get("chains") or []):
-                            if chain.get("chain", "").upper() == api_net.upper():
-                                if chain.get("withdrawable") == "true":
-                                    return float(chain.get("withdrawFee", 0))
+                            if str(chain.get("chain", "")).upper() != api_net.upper():
+                                continue
+                            w = chain.get("withdrawable")
+                            if w not in (True, "true", "True", 1, "1"):
+                                continue
+                            raw = chain.get("withdrawFee") or chain.get("withdraw_fee") or "0"
+                            try:
+                                return float(raw)
+                            except (TypeError, ValueError):
+                                return None
         except Exception as e:
             logger.debug(f"[bitget] 提现手续费查询失败: {e}")
         return None

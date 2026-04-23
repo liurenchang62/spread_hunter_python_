@@ -122,11 +122,11 @@ class FeeInfo:
 async def _fetch_fee(client, exchange: str, net: str) -> FeeInfo:
     has_addr = net in ADDRESSES.get(exchange, {})
     fee: Optional[float] = None
-    if net in NETWORK_NAMES.get(exchange, {}):
-        try:
-            fee = await client.get_withdrawal_fee(net)
-        except Exception:
-            pass
+    # 始终请求 API：get_api_network_name 对未映射链会回退为内部名（如 ARB），避免误报 N/A
+    try:
+        fee = await client.get_withdrawal_fee(net)
+    except Exception:
+        pass
     return FeeInfo(network=net, fee=fee, has_addr=has_addr)
 
 
