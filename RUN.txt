@@ -142,3 +142,5 @@ python tools/rebalance.py --execute
 # logs/spread_snapshots.csv — 价差快照（1s 粒度）
 # logs/trades.csv           — 已执行的开/平仓记录 & PnL
 # logs/params.json          — 启动时的参数快照
+#
+# 服务器 SSH / git pull / scp 密钥：见同目录 SERVER_COMMANDS.txt

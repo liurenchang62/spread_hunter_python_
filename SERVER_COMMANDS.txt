@@ -1,0 +1,47 @@
+# Spread Hunter — 服务器常用命令（速查）
+# 与 RUN.txt 配套：本文件专写「本机 ↔ 服务器」操作。
+# 路径、IP 请按你的环境替换。
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 1. 进入服务器（在本机 PowerShell 执行）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ssh root@你的服务器公网IP
+
+# 示例（勿照抄 IP，以 Vultr 控制台为准）：
+# ssh root@45.76.202.248
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 2. 在服务器上从 GitHub 更新代码（已 SSH 登录后执行）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+cd /root/spread_hunter_python
+git pull origin main
+
+# 若提示分叉无法合并，强制与远程 main 一致（慎用：会丢弃对已跟踪文件的本地修改）：
+# cd /root/spread_hunter_python
+# git fetch origin
+# git reset --hard origin/main
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 3. 将本机「未进 Git」的配置/密钥推到服务器（在本机 PowerShell 执行）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 下列文件通常在 .gitignore 中，需用 scp 单独同步。
+
+# 模拟盘 + 交易参数（必拷，跑 python main.py Demo 需要）
+scp D:\spread_hunter_python\clients\api_keys_demo.py root@你的服务器IP:/root/spread_hunter_python/clients/
+scp D:\spread_hunter_python\trader\config.py root@你的服务器IP:/root/spread_hunter_python/trader/
+
+# 实盘密钥（仅当服务器要跑 --live 时）
+scp D:\spread_hunter_python\clients\api_keys_live.py root@你的服务器IP:/root/spread_hunter_python/clients/
+
+# 再平衡提币地址（仅当使用 tools/rebalance.py 时）
+scp D:\spread_hunter_python\clients\withdrawal_addresses.py root@你的服务器IP:/root/spread_hunter_python/clients/
+
+# 拷完建议在服务器上执行（SSH 登录后）：
+# chmod 600 /root/spread_hunter_python/clients/api_keys_demo.py \
+#           /root/spread_hunter_python/clients/api_keys_live.py \
+#           /root/spread_hunter_python/clients/withdrawal_addresses.py \
+#           /root/spread_hunter_python/trader/config.py
