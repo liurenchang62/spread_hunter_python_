@@ -10,9 +10,9 @@
 建议：先用小额（默认 1 USDT）测试，确认成功后再操作大额。
 
 用法：
-    python -m test.test_transfer
-    python -m test.test_transfer --ex okx
-    python -m test.test_transfer --amount 5.0
+    python -m test_demo.test_transfer
+    python -m test_demo.test_transfer --ex okx
+    python -m test_demo.test_transfer --amount 5.0
 """
 import argparse
 import asyncio

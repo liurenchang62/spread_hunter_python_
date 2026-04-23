@@ -54,6 +54,10 @@ class RiskState:
     halt_reason:     str  = ""
     halt_type:       str  = ""            # "daily_loss" | "exposure" | ""
 
+    # 再平衡控制（由 RebalanceSupervisor 设置）
+    rebalance_paused: bool = False        # True = 再平衡进行中，暂停开仓
+    monitor_only:     bool = False        # True = 整体流动性不足，仅平仓不开仓
+
 
 class RiskManager:
     """

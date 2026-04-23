@@ -4,9 +4,9 @@
 ⚠️  会产生真实 Demo/Testnet 成交。每所各下一笔最小仓位，成交后自动平仓。
 
 用法：
-    python -m test.test_orders
-    python -m test.test_orders --ex gate
-    python -m test.test_orders --ex binance --symbol ETHUSDT
+    python -m test_demo.test_orders
+    python -m test_demo.test_orders --ex gate
+    python -m test_demo.test_orders --ex binance --symbol ETHUSDT
 """
 import argparse
 import asyncio

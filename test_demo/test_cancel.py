@@ -6,8 +6,8 @@
   4. 再次查询挂单列表，确认已撤销
 
 用法：
-    python -m test.test_cancel
-    python -m test.test_cancel --ex binance
+    python -m test_demo.test_cancel
+    python -m test_demo.test_cancel --ex binance
 """
 import argparse
 import asyncio

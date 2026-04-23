@@ -105,16 +105,28 @@ python -m test_live.test_transfer --ex gate --execute --amount 10
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  资金再平衡工具（tools/rebalance.py）
+#  资金再平衡（rebalance/ 目录）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 触发条件：最大余额 − 平均余额 > 300 USDT
-# 最小单笔提币：100 USDT；自动比较 SOL/BSC 网络手续费并选较低者
+# 触发条件（所有参数均为比例，见 trader/config.py）：
+#   REBALANCE_FLOOR_PCT=20%  — 某所现金 < 总现金×20% → 触发再平衡
+#   CASH_RATIO_MIN=30%       — 整体现金/权益 < 30% → 进入仅监控模式
+#   CASH_RATIO_RESUME=40%    — 整体现金/权益 > 40% → 退出仅监控模式（迟滞）
+# 实盘主程序（--live）自动每 4h 后台检查一次（RebalanceSupervisor）
+# 手动工具始终使用实盘 API Key（测试网不支持提现 API）
 
-# 干跑：显示各所余额、再平衡计划、预估手续费（不执行任何操作）
-python tools/rebalance.py
+# [1] 查看各交易所余额 + 再平衡/流动性状态（只读）
+python -m rebalance.check_balances
 
-# 实际执行：需要输入 YES 全局确认 + 每笔提币逐一确认
-python tools/rebalance.py --execute
+# [2] 查看各交易所提现手续费 + 路径对比（只读）
+python -m rebalance.check_fees                          # 查询全部 4 所
+python -m rebalance.check_fees --ex gate                # 只查 gate
+
+# [3] 干跑：显示余额、触发判断、路径规划、提现计划（不执行任何操作）
+python -m rebalance.run
+
+# [4] 实际执行：输入 YES 全局确认 + 每笔提现逐一确认
+#     注意：执行前确保主程序未在活跃开仓，或在低活跃时段运行
+python -m rebalance.run --execute
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

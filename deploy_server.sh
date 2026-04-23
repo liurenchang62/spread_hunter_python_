@@ -119,7 +119,7 @@ EOF
 
 echo -e "${GREEN}[6/6] 运行测试...${NC}"
 cd /root/spread_hunter_python
-python3 -m test.test_balance 2>&1 | head -20 || true
+python3 -m test_demo.test_balance 2>&1 | head -20 || true
 
 echo -e "${GREEN}==========================================${NC}"
 echo -e "${GREEN}部署完成！${NC}"
@@ -127,7 +127,7 @@ echo ""
 echo "下一步："
 echo "  1. 配置 API Key: nano /root/spread_hunter_python/clients/api_keys_live.py"
 echo "  2. 或使用文件方式: echo 'your_key' > /root/.secrets/binance_api_key.txt"
-echo "  3. 运行测试: python3 -m test.run_all"
+echo "  3. 运行测试: python3 -m test_demo.run_all"
 echo "  4. 启动系统: python3 main.py"
 echo ""
 echo -e "${YELLOW}实盘交易警告：${NC}"

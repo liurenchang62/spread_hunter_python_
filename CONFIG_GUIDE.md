@@ -134,7 +134,7 @@ chmod 600 /root/.secrets/*.txt
 
 ```bash
 cd /root/spread_hunter_python
-python3 -m test.test_balance
+python3 -m test_demo.test_balance
 ```
 
 ### 5. 启动系统
@@ -251,7 +251,7 @@ A: 需要更新所有交易所的 API 白名单。建议购买固定 IP 的服�
 A: 服务器部署推荐文件方式（更安全），本地开发可以直接填写。
 
 **Q: 如何验证 Key 配置正确？**  
-A: 运行 `python3 -m test.test_balance`，看能否正确查询余额。
+A: 运行 `python3 -m test_demo.test_balance`，看能否正确查询余额。
 
 ---
 

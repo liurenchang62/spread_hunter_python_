@@ -3,9 +3,9 @@
 不运行 test_transfer（涉及资金划转，需手动确认）。
 
 用法：
-    python -m test.run_all
-    python -m test.run_all --ex okx
-    python -m test.run_all --skip-orders    # 跳过实际下单
+    python -m test_demo.run_all
+    python -m test_demo.run_all --ex okx
+    python -m test_demo.run_all --skip-orders    # 跳过实际下单
 """
 import argparse
 import asyncio
@@ -15,10 +15,10 @@ import time
 from test_demo._common import section, warn, ok, fail, C, W
 
 # 导入各测试模块的 main 函数
-from test.test_balance   import main as run_balance
-from test.test_positions import main as run_positions
-from test.test_cancel    import main as run_cancel
-from test.test_orders    import main as run_orders
+from test_demo.test_balance   import main as run_balance
+from test_demo.test_positions import main as run_positions
+from test_demo.test_cancel    import main as run_cancel
+from test_demo.test_orders    import main as run_orders
 
 
 async def run_all(targets: list[str], skip_orders: bool):
@@ -60,7 +60,7 @@ async def run_all(targets: list[str], skip_orders: bool):
     if not skip_orders:
         warn("请确认 Demo/Testnet 账户无残留持仓（test_orders 会自动平仓）")
 
-    print("※ 期货→现货划转测试需单独运行: python -m test.test_transfer")
+    print("※ 期货→现货划转测试需单独运行: python -m test_demo.test_transfer")
     print()
 
 

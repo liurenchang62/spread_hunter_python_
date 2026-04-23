@@ -134,6 +134,15 @@ class BaseClient:
         """查询现货/资金账户 USDT 可用余额（用于再平衡）。"""
         raise NotImplementedError
 
+    async def get_total_balance(self) -> float:
+        """
+        查询期货账户 USDT 总权益（含已用保证金 + 未实现盈亏）。
+        与 get_balance()（仅可用余额）配合用于整体流动性比计算：
+            cash_ratio = (get_balance() + get_spot_balance()) /
+                         (get_total_balance() + get_spot_balance())
+        """
+        raise NotImplementedError
+
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:
         """
         查询 USDT 在指定网络的提现手续费（USDT 计价）。
@@ -348,6 +357,24 @@ class BinanceClient(BaseClient):
                         return float(item.get("free", 0))
         except Exception:
             pass
+        return 0.0
+
+    async def get_total_balance(self) -> float:
+        # Binance /fapi/v2/balance 同时返回 balance（总权益）和 availableBalance
+        p, h = self._sign({})
+        try:
+            sess = await self._sess()
+            async with sess.get(
+                f"{self.base}/fapi/v2/balance", params=p, headers=h,
+                ssl=False, timeout=aiohttp.ClientTimeout(total=5), **self._px(),
+            ) as r:
+                data = await r.json()
+            if isinstance(data, list):
+                for item in data:
+                    if item.get("asset") == "USDT":
+                        return float(item.get("balance", 0))
+        except Exception as e:
+            logger.debug(f"[binance] total_balance 查询失败: {e}")
         return 0.0
 
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:
@@ -602,6 +629,24 @@ class OKXClient(BaseClient):
             logger.debug(f"[okx] spot balance 查询失败: {e}")
         return 0.0
 
+    async def get_total_balance(self) -> float:
+        # OKX /api/v5/account/balance details[USDT].eq = 总权益（含冻结+未实现盈亏）
+        path = "/api/v5/account/balance?ccy=USDT"
+        try:
+            sess = await self._sess()
+            async with sess.get(
+                f"{self.base}{path}", headers=self._sign("GET", path),
+                ssl=False, timeout=aiohttp.ClientTimeout(total=5), **self._px(),
+            ) as r:
+                data = await r.json()
+            if data.get("code") == "0":
+                for detail in (data.get("data") or [{}])[0].get("details", []):
+                    if detail.get("ccy") == "USDT":
+                        return float(detail.get("eq", 0))
+        except Exception as e:
+            logger.debug(f"[okx] total_balance 查询失败: {e}")
+        return 0.0
+
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:
         from clients.withdrawal_addresses import get_api_network_name
         path = "/api/v5/asset/currencies?ccy=USDT"
@@ -807,6 +852,22 @@ class GateClient(BaseClient):
                         return float(item.get("available", 0))
         except Exception as e:
             logger.debug(f"[gate] spot balance 查询失败: {e}")
+        return 0.0
+
+    async def get_total_balance(self) -> float:
+        # Gate /api/v4/futures/usdt/accounts 的 total 字段 = 总权益
+        path = "/api/v4/futures/usdt/accounts"
+        try:
+            sess = await self._sess()
+            async with sess.get(
+                f"{self.base}{path}", headers=self._sign("GET", path),
+                ssl=False, timeout=aiohttp.ClientTimeout(total=5), **self._px(),
+            ) as r:
+                data = await r.json()
+            if isinstance(data, dict):
+                return float(data.get("total", 0))
+        except Exception as e:
+            logger.debug(f"[gate] total_balance 查询失败: {e}")
         return 0.0
 
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:
@@ -1140,6 +1201,29 @@ class BitgetClient(BaseClient):
                         return float(item.get("available", 0))
         except Exception as e:
             logger.debug(f"[bitget] spot balance 查询失败: {e}")
+        return 0.0
+
+    async def get_total_balance(self) -> float:
+        # Bitget: available + locked（持仓保证金）≈ 总权益（保守估算，未含未实现盈亏）
+        for product_type, use_pap in [("USDT-FUTURES", True), ("SUSDT-FUTURES", False)]:
+            path = f"/api/v2/mix/account/accounts?productType={product_type}"
+            try:
+                sess = await self._sess()
+                async with sess.get(
+                    f"{self.base}{path}",
+                    headers=self._sign("GET", path, use_pap=use_pap),
+                    ssl=False, timeout=aiohttp.ClientTimeout(total=5), **self._px(),
+                ) as r:
+                    data = await r.json()
+                if str(data.get("code", "")) == "00000":
+                    for item in (data.get("data") or []):
+                        if item.get("marginCoin") in ["USDT", "SUSDT"]:
+                            avail  = float(item.get("available", 0))
+                            locked = float(item.get("locked", 0))
+                            return avail + locked
+            except Exception as e:
+                logger.debug(f"[bitget] total_balance 查询失败: {e}")
+                continue
         return 0.0
 
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:

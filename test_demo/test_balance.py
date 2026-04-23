@@ -2,8 +2,8 @@
 测试各交易所余额查询。
 
 用法：
-    python -m test.test_balance
-    python -m test.test_balance --ex okx
+    python -m test_demo.test_balance
+    python -m test_demo.test_balance --ex okx
 """
 import argparse
 import asyncio

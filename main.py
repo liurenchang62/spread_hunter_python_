@@ -31,6 +31,7 @@ from tracker.tracker import Tracker
 from trader.trader import Trader
 from trader import config as trader_cfg
 from tracker import config as tracker_cfg
+from rebalance.supervisor import RebalanceSupervisor
 
 # ─── 日志 ─────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -72,8 +73,9 @@ async def _async_main(live: bool) -> int:
     print(_banner(live))
 
     # ── 初始化 ────────────────────────────────────────────────────────────────
-    tracker = Tracker()
-    trader  = Trader(tracker)
+    tracker    = Tracker()
+    trader     = Trader(tracker)
+    supervisor = RebalanceSupervisor(trader.risk) if live else None
 
     # ── 优雅退出处理 ──────────────────────────────────────────────────────────
     loop = asyncio.get_running_loop()
@@ -85,6 +87,8 @@ async def _async_main(live: bool) -> int:
             stop_event.set()
             tracker.stop()
             trader.stop()
+            if supervisor:
+                supervisor.stop()
 
     for sig in (signal.SIGINT, signal.SIGTERM):
         try:
@@ -93,12 +97,19 @@ async def _async_main(live: bool) -> int:
             pass   # Windows 不支持 add_signal_handler
 
     # ── 并发运行 ──────────────────────────────────────────────────────────────
-    tracker_task = asyncio.create_task(tracker.start(), name="tracker")
-    trader_task  = asyncio.create_task(trader.start(),  name="trader")
+    tasks = [
+        asyncio.create_task(tracker.start(),    name="tracker"),
+        asyncio.create_task(trader.start(),     name="trader"),
+    ]
+    if supervisor:
+        tasks.append(asyncio.create_task(supervisor.start(), name="supervisor"))
+
+    tracker_task = tasks[0]
+    trader_task  = tasks[1]
 
     try:
         done, pending = await asyncio.wait(
-            [tracker_task, trader_task],
+            tasks,
             return_when=asyncio.FIRST_COMPLETED,
         )
 
@@ -126,12 +137,14 @@ async def _async_main(live: bool) -> int:
         logger.error(f"[main] 未预期异常: {e}", exc_info=True)
         _EXIT_CODE = 2
     finally:
-        # 确保 trader/tracker 都停止
+        # 确保所有组件都停止
         tracker.stop()
         trader.stop()
+        if supervisor:
+            supervisor.stop()
 
         # 等待任务彻底结束（最多 10s）
-        remaining = [t for t in [tracker_task, trader_task] if not t.done()]
+        remaining = [t for t in tasks if not t.done()]
         if remaining:
             try:
                 await asyncio.wait_for(

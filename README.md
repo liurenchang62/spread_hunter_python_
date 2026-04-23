@@ -213,11 +213,11 @@ OKX_DEMO_PASSPHRASE = "your_passphrase"
 #### 3. 运行测试（测试网/Demo 环境）
 ```bash
 # 测试所有交易所 API
-python -m test.run_all
+python -m test_demo.run_all
 
 # 单个测试
-python -m test.test_balance
-python -m test.test_orders
+python -m test_demo.test_balance
+python -m test_demo.test_orders
 ```
 
 #### 4. 启动系统（测试网）
@@ -395,7 +395,7 @@ OKX_DEMO_PASSPHRASE = "your_passphrase"
 
 #### 3. Run Tests (Testnet/Demo)
 ```bash
-python -m test.run_all
+python -m test_demo.run_all
 ```
 
 #### 4. Start System (Testnet)

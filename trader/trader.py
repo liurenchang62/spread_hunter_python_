@@ -162,6 +162,14 @@ class Trader:
         if self._loop is None:
             return
 
+        # 再平衡暂停 / 整体流动性不足 → 禁止开仓（平仓不受影响）
+        if self.risk.state.rebalance_paused:
+            logger.info("[trader] 再平衡进行中，暂停开仓")
+            return
+        if self.risk.state.monitor_only:
+            logger.info("[trader] 整体流动性不足（仅监控模式），禁止开仓")
+            return
+
         big, small, sym = sig.big_exchange, sig.small_exchange, sig.symbol
 
         # 交易所过滤

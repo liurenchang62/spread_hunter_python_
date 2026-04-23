@@ -2,9 +2,9 @@
 测试持仓查询（get_positions）与挂单查询（get_open_orders）。
 
 用法：
-    python -m test.test_positions
-    python -m test.test_positions --ex okx
-    python -m test.test_positions --symbol BTCUSDT   # 只查某合约
+    python -m test_demo.test_positions
+    python -m test_demo.test_positions --ex okx
+    python -m test_demo.test_positions --symbol BTCUSDT   # 只查某合约
 """
 import argparse
 import asyncio
