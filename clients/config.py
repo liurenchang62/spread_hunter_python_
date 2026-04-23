@@ -37,6 +37,7 @@ TESTNET_SYMBOL_BLACKLIST: set[str] = {
     "ZECUSDT",       # 测试网不存在
     "SPKUSDT",       # 测试网不存在
     "ORDIUSDT",      # 测试网可能存在但流动性差
+    "CHIPUSDT",      # 主网有、Binance 测试网/Bitget 模拟币盘常不可用，易误触发套利
 }
 
 # ─── WebSocket 地址（主网 / 永续合约）────────────────────────────────────────
