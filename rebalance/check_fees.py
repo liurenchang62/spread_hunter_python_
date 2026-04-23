@@ -22,7 +22,6 @@ from rebalance._common import (
     ok, warn, err, info, hdr, sep,
     load_live_clients, close_all,
     FeeInfo, fetch_all_fees, find_best_path,
-    FEE_MAX_PCT,
 )
 from clients.withdrawal_addresses import ADDRESSES, get_supported_networks
 
