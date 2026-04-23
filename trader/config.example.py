@@ -39,6 +39,16 @@ MARKET_INFO_REFRESH_H = 4
 
 # ─── 风控参数 ──────────────────────────────────────────────────────────────────
 DAILY_HALT_PCT        = 0.95
+
+# ─── 资金再平衡（rebalance/ 模块与 main --live 监控会读这些常量）────────────────
+REBALANCE_CHECK_INTERVAL_H  = 4
+REBALANCE_FLOOR_PCT         = 0.20
+REBALANCE_MIN_TRANSFER_PCT  = 0.02
+REBALANCE_FEE_CEIL_PCT      = 0.005
+REBALANCE_CONFIRM_TIMEOUT_S = 1800
+CASH_RATIO_MIN    = 0.30
+CASH_RATIO_RESUME = 0.40
+
 REBALANCE_WARN_PCT    = 0.30
 MAX_EXPOSURE_PCT      = 0.50
 
