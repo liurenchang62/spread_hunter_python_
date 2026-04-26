@@ -143,6 +143,10 @@ class BaseClient:
         """
         raise NotImplementedError
 
+    async def set_leverage(self, symbol: str, leverage: int) -> bool:
+        """设置合约杠杆（尽力而为，失败只记日志不抛出）。"""
+        raise NotImplementedError
+
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:
         """
         查询 USDT 在指定网络的提现手续费（USDT 计价）。
@@ -376,6 +380,19 @@ class BinanceClient(BaseClient):
         except Exception as e:
             logger.debug(f"[binance] total_balance 查询失败: {e}")
         return 0.0
+
+    async def set_leverage(self, symbol: str, leverage: int) -> bool:
+        p, h = self._sign({"symbol": symbol.upper(), "leverage": leverage})
+        try:
+            sess = await self._sess()
+            async with sess.post(
+                f"{self.base}/fapi/v1/leverage",
+                params=p, headers=h, ssl=False, **self._px(),
+            ) as r:
+                return r.status == 200
+        except Exception as e:
+            logger.debug(f"[binance] set_leverage 失败: {e}")
+            return False
 
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:
         from clients.withdrawal_addresses import get_api_network_name
@@ -647,6 +664,23 @@ class OKXClient(BaseClient):
             logger.debug(f"[okx] total_balance 查询失败: {e}")
         return 0.0
 
+    async def set_leverage(self, symbol: str, leverage: int) -> bool:
+        # OKX isolated 模式：per-instrument 设置杠杆；可在开仓前调用
+        body_d = {"instId": symbol, "lever": str(leverage), "mgnMode": "isolated"}
+        body   = json.dumps(body_d)
+        path   = "/api/v5/account/set-leverage"
+        try:
+            sess = await self._sess()
+            async with sess.post(
+                f"{self.base}{path}", headers=self._sign("POST", path, body),
+                data=body, ssl=False, **self._px(),
+            ) as r:
+                data = await r.json()
+            return data.get("code") == "0"
+        except Exception as e:
+            logger.debug(f"[okx] set_leverage 失败: {e}")
+            return False
+
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:
         from clients.withdrawal_addresses import get_api_network_name
         path = "/api/v5/asset/currencies?ccy=USDT"
@@ -895,6 +929,23 @@ class GateClient(BaseClient):
         except Exception as e:
             logger.debug(f"[gate] total_balance 查询失败: {e}")
         return 0.0
+
+    async def set_leverage(self, symbol: str, leverage: int) -> bool:
+        # Gate：通过 POST /positions/{contract}/leverage 设置杠杆
+        # 若该 symbol 尚无持仓，API 会报错（正常情况，忽略即可）
+        path  = f"/api/v4/futures/usdt/positions/{symbol}/leverage"
+        query = f"leverage={leverage}"
+        try:
+            sess = await self._sess()
+            async with sess.post(
+                f"{self.base}{path}?{query}",
+                headers=self._sign("POST", path, "", query),
+                ssl=False, **self._px(),
+            ) as r:
+                return r.status in (200, 201)
+        except Exception as e:
+            logger.debug(f"[gate] set_leverage 失败: {e}")
+            return False
 
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:
         from clients.withdrawal_addresses import get_api_network_name
@@ -1296,6 +1347,26 @@ class BitgetClient(BaseClient):
                 logger.debug(f"[bitget] total_balance 查询失败: {e}")
                 continue
         return 0.0
+
+    async def set_leverage(self, symbol: str, leverage: int) -> bool:
+        body_d = {
+            "symbol": symbol, "productType": "USDT-FUTURES",
+            "marginCoin": "USDT", "leverage": str(leverage),
+        }
+        body = json.dumps(body_d)
+        path = "/api/v2/mix/account/set-leverage"
+        try:
+            sess = await self._sess()
+            async with sess.post(
+                f"{self.base}{path}",
+                headers=self._sign("POST", path, body, use_pap=False),
+                data=body, ssl=False, **self._px(),
+            ) as r:
+                data = await r.json()
+            return str(data.get("code", "")) == "00000"
+        except Exception as e:
+            logger.debug(f"[bitget] set_leverage 失败: {e}")
+            return False
 
     async def get_withdrawal_fee(self, network: str) -> Optional[float]:
         from clients.withdrawal_addresses import get_api_network_name

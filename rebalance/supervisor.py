@@ -131,6 +131,7 @@ class RebalanceSupervisor:
         self._set_rebalance_paused(True)
         logger.info("[supervisor] Trader 开仓已暂停")
 
+        all_arrived = False
         try:
             all_fees = await fetch_all_fees(clients)
             transfers = plan_transfers(rc, states, all_fees)
@@ -145,15 +146,20 @@ class RebalanceSupervisor:
                     f"{t.amount:.2f}U via {t.path.label}"
                 )
 
-            # ── 执行转账 ────────────────────────────────────────────────────
-            await self._execute_transfers(clients, transfers, states)
+            # ── 执行转账（含等待全部到账）──────────────────────────────────
+            all_arrived = await self._execute_transfers(clients, transfers, states)
 
         except Exception as e:
             logger.error(f"[supervisor] 再平衡执行异常: {e}", exc_info=True)
         finally:
-            # 无论成功与否，恢复开仓
+            # 无论成功与否，必须恢复开仓（不能永久暂停）
             self._set_rebalance_paused(False)
-            logger.info("[supervisor] Trader 开仓已恢复")
+            if all_arrived:
+                logger.info("[supervisor] 所有转账已确认到账，Trader 开仓已恢复")
+            else:
+                logger.warning(
+                    "[supervisor] 部分转账未在超时内确认到账，已强制恢复开仓，请手动检查余额"
+                )
 
     def _check_liquidity(self, states: dict[str, ExchangeState]):
         currently_monitor_only = self._risk.state.monitor_only
@@ -185,12 +191,17 @@ class RebalanceSupervisor:
         clients: dict,
         transfers: list[Transfer],
         states: dict[str, ExchangeState],
-    ):
+    ) -> bool:
+        """
+        执行所有转账并等待全部到账。
+        返回 True = 所有转账均已确认到账；False = 有超时未确认。
+        """
         from collections import defaultdict
         by_source: dict[str, list[Transfer]] = defaultdict(list)
         for t in transfers:
             by_source[t.source].append(t)
 
+        # ── Step 1: 合约 → 现货划转（各来源所）──────────────────────────────
         for src, src_transfers in by_source.items():
             total_out     = sum(t.amount for t in src_transfers)
             spot_now      = states[src].spot
@@ -203,42 +214,58 @@ class RebalanceSupervisor:
                         f"[supervisor] {src}: 合约可用余额不足"
                         f"（需{need_transfer:.2f}U，仅{futures_avail:.2f}U）"
                     )
-                    return
+                    return False
                 ok = await clients[src].transfer_to_spot(need_transfer)
                 if ok:
                     logger.info(f"[supervisor] {src} 合约→现货划转 {need_transfer:.2f}U 成功")
                 else:
                     logger.error(f"[supervisor] {src} 划转失败，终止再平衡")
-                    return
+                    return False
 
+        # ── Step 2: 提现 + 等待到账 ──────────────────────────────────────────
+        all_arrived = True
         for t in transfers:
             p = t.path
             result = await clients[t.source].withdraw(p.network, p.address, t.amount)
-            if result["success"]:
-                logger.info(
-                    f"[supervisor] 提现成功: {t.source}→{t.path.dst} "
-                    f"{t.amount:.2f}U via {p.network}  orderId={result['id']}"
-                )
-                # 等待直连到账（中转第二步需人工操作，记录日志即可）
-                if p.kind == "direct":
-                    arrived = await self._poll_deposit(
-                        clients, t.target, REBALANCE_CONFIRM_TIMEOUT_S
-                    )
-                    if not arrived:
-                        logger.warning(
-                            f"[supervisor] {t.target} 到账超时，可能仍在传输，请手动确认"
-                        )
-                else:
-                    logger.warning(
-                        f"[supervisor] 中转路径：资金已到 {p.dst}，"
-                        f"请手动完成第2步（{p.dst}→{t.target} via {p.hub_network}）"
-                    )
-            else:
+            if not result["success"]:
                 logger.error(
-                    f"[supervisor] 提现失败: {t.source}→{t.target} "
+                    f"[supervisor] 提现失败: {t.source}→{t.path.dst} "
                     f"err={result['error']}"
                 )
+                all_arrived = False
+                await asyncio.sleep(1.5)
+                continue
+
+            logger.info(
+                f"[supervisor] 提现成功: {t.source}→{p.dst} "
+                f"{t.amount:.2f}U via {p.network}  orderId={result['id']}"
+            )
+
+            # 等待最终目标到账
+            # 中转路径需两跳，timeout 加倍；同时打印人工操作提示
+            if p.kind == "hub":
+                logger.warning(
+                    f"[supervisor] 中转路径：资金已发往 {p.dst}，"
+                    f"需手动完成第2步（{p.dst}→{t.target} via {p.hub_network}），"
+                    f"将等待最终到账（超时={REBALANCE_CONFIRM_TIMEOUT_S*2}s）"
+                )
+                timeout = REBALANCE_CONFIRM_TIMEOUT_S * 2
+            else:
+                timeout = REBALANCE_CONFIRM_TIMEOUT_S
+
+            arrived = await self._poll_deposit(clients, t.target, timeout)
+            if arrived:
+                logger.info(f"[supervisor] {t.target} 到账已确认")
+            else:
+                logger.warning(
+                    f"[supervisor] {t.target} 到账超时（{timeout}s），"
+                    f"资金可能仍在传输，请手动确认"
+                )
+                all_arrived = False
+
             await asyncio.sleep(1.5)
+
+        return all_arrived
 
     async def _poll_deposit(
         self, clients: dict, exchange: str, timeout_s: float

@@ -54,6 +54,14 @@ class Position:
     close_reason:      str   = ""   # "convergence" | "stop_loss" | "timeout"
     pnl_usdt:          float = 0.0  # 净盈亏（含手续费）
 
+    # 平仓腿成交记录（由 close_position 写入，用于详细日志）
+    small_close_order_id: str   = ""
+    small_close_price:    float = 0.0
+    small_close_fee:      float = 0.0
+    big_close_order_id:   str   = ""
+    big_close_price:      float = 0.0
+    big_close_fee:        float = 0.0
+
     @property
     def hold_seconds(self) -> float:
         return time.time() - self.open_time

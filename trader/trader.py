@@ -36,12 +36,14 @@ from clients import to_exchange_fmt
 from tracker.models import MarketEvent, Tick
 from trader.config import (
     CONVERGENCE_PCT,
+    LEVERAGE,
     LIVE_TRADING_ON,
     MAX_HOLD_SECONDS,
     MIN_ANOMALY_TO_OPEN_PCT,
     PAIR_CAPITAL_PCT,
     PAIR_CAPITAL_FALLBACK_USDT,
     MIN_ORDER_NOTIONAL_USDT,
+    SESSION_MAX_ENTRIES,
     STOP_LOSS_PCT,
     TESTNET_EXCHANGES,
     MARKET_INFO_REFRESH_H,
@@ -93,6 +95,9 @@ class Trader:
         self._n_opened  = 0
         self._n_closed  = 0
         self._total_pnl = 0.0
+
+        # 会话开仓上限（SESSION_MAX_ENTRIES）
+        self._session_cap_reached = False   # 累计开仓已达上限，不再接受新开仓
 
         mode = "主网实盘" if LIVE_TRADING_ON else "测试网/Demo"
         logger.info(f"[trader] 初始化 | 模式={mode} | 客户端={list(self.clients.keys())}")
@@ -168,6 +173,17 @@ class Trader:
             return
         if self.risk.state.monitor_only:
             logger.info("[trader] 整体流动性不足（仅监控模式），禁止开仓")
+            return
+
+        # 会话开仓上限检查
+        if self._session_cap_reached:
+            return
+        if SESSION_MAX_ENTRIES is not None and self._n_opened >= SESSION_MAX_ENTRIES:
+            self._session_cap_reached = True
+            logger.warning(
+                f"[trader] 会话开仓上限 {SESSION_MAX_ENTRIES} 已达到，停止新开仓；"
+                f"等待现有持仓平仓后进入纯监控模式"
+            )
             return
 
         big, small, sym = sig.big_exchange, sig.small_exchange, sig.symbol
@@ -327,6 +343,13 @@ class Trader:
         small_sym  = to_exchange_fmt(sym, small)
         big_sym    = to_exchange_fmt(sym, big)
 
+        # 设置杠杆（并发，失败只记日志不阻断）
+        await asyncio.gather(
+            self.clients[small].set_leverage(small_sym, LEVERAGE),
+            self.clients[big].set_leverage(big_sym, LEVERAGE),
+            return_exceptions=True,
+        )
+
         # 并发下两腿
         small_task = self.clients[small].place_order(
             symbol=small_sym, side=small_side,
@@ -470,6 +493,12 @@ class Trader:
                 f"[trader] 平仓完成 {pos.id} | pnl={closed.pnl_usdt:+.4f} USDT"
                 f" | 累计PnL={self._total_pnl:+.4f} USDT"
             )
+            # 会话上限已达且所有持仓已清空 → 纯监控模式
+            if self._session_cap_reached and not self.pm.open_positions():
+                logger.warning(
+                    f"[trader] 会话开仓上限 {SESSION_MAX_ENTRIES} 笔已全部平仓，"
+                    f"进入纯监控模式（本次启动不再开仓）"
+                )
 
     # ─── 超时检查（1s timer）────────────────────────────────────────────────
 
