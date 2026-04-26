@@ -60,7 +60,7 @@ def _banner(live: bool) -> str:
   资金    : 各所最小余额 × {trader_cfg.PAIR_CAPITAL_PCT*100:.1f}% / 对（两腿合计）
   开仓阈值: anomaly >= {trader_cfg.MIN_ANOMALY_TO_OPEN_PCT}%
   日止损  : 余额低于日初 × {trader_cfg.DAILY_HALT_PCT*100:.0f}% 停机
-  最大敞口: 总余额 × {trader_cfg.MAX_EXPOSURE_PCT*100:.0f}%
+  风控    : 单所可用余额不足时该所仅平仓，不影响其他配对
   启动时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 """
 
@@ -78,7 +78,8 @@ async def _async_main(live: bool) -> int:
         logger.info("[main] 运行下单验证测试（auto_confirm）…")
         order_ok = await run_order_tests()
         if not order_ok:
-            logger.warning("[main] 下单验证存在失败项，但用户已确认，继续启动")
+            logger.error("[main] 下单验证存在失败项，终止启动。请修复上述错误后重试。")
+            sys.exit(1)
 
     # ── 初始化 ────────────────────────────────────────────────────────────────
     tracker    = Tracker()

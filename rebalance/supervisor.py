@@ -2,10 +2,10 @@
 再平衡后台监控器（集成在主程序中）。
 
 每隔 REBALANCE_CHECK_INTERVAL_H 小时自动执行：
+  0. 现货→期货兜底扫（确保余额数据准确）
   1. 再平衡检查 → 若触发：暂停 Trader 开仓 → 执行转账 → 等待到账 → 恢复
-  2. 整体流动性检查 → 更新 Trader 的 monitor_only 标志（含迟滞）
 
-与 Trader 通过 RiskState.rebalance_paused / monitor_only 两个标志通信，
+与 Trader 通过 RiskState.rebalance_paused 标志通信，
 所有操作在同一个 asyncio 事件循环中，无需跨线程锁。
 """
 
@@ -18,13 +18,11 @@ from trader.config import (
     REBALANCE_CHECK_INTERVAL_H,
     REBALANCE_CONFIRM_TIMEOUT_S,
     REBALANCE_FLOOR_PCT,
-    CASH_RATIO_MIN,
-    CASH_RATIO_RESUME,
 )
 from rebalance._common import (
     load_live_clients, close_all,
     fetch_all_states, fetch_all_fees,
-    check_rebalance, check_liquidity,
+    check_rebalance,
     plan_transfers, Transfer,
     ExchangeState,
 )
@@ -56,8 +54,7 @@ class RebalanceSupervisor:
         """启动后台监控循环（每 CHECK_INTERVAL_H 小时检查一次）。"""
         logger.info(
             f"[supervisor] 启动，检查周期={REBALANCE_CHECK_INTERVAL_H}h，"
-            f"再平衡下限={REBALANCE_FLOOR_PCT*100:.0f}%，"
-            f"流动性下限={CASH_RATIO_MIN*100:.0f}%"
+            f"再平衡下限={REBALANCE_FLOOR_PCT*100:.0f}%"
         )
         # 启动时立即检查一次
         await self._run_checks()
@@ -91,15 +88,13 @@ class RebalanceSupervisor:
             return
 
         try:
+            # ── Step 0: 现货→期货兜底扫（确保余额数据准确）──────────────────
+            await self._sweep_all_spot_to_futures(clients)
+
             states = await fetch_all_states(clients)
 
             # ── Step 1: 再平衡检查 ──────────────────────────────────────────
             await self._check_rebalance(clients, states)
-
-            # ── Step 2: 整体流动性检查 ──────────────────────────────────────
-            # 再平衡可能改变了现金分布，但总量不变，流动性比不变
-            # 仍使用原始 states（避免多余 API 调用）
-            self._check_liquidity(states)
 
         except Exception as e:
             logger.error(f"[supervisor] 检查异常: {e}", exc_info=True)
@@ -160,29 +155,6 @@ class RebalanceSupervisor:
                 logger.warning(
                     "[supervisor] 部分转账未在超时内确认到账，已强制恢复开仓，请手动检查余额"
                 )
-
-    def _check_liquidity(self, states: dict[str, ExchangeState]):
-        currently_monitor_only = self._risk.state.monitor_only
-        lc = check_liquidity(states, currently_monitor_only)
-
-        logger.info(
-            f"[supervisor] 流动性检查: cash_ratio={lc.cash_ratio*100:.1f}%  "
-            f"({lc.total_cash:.2f}U/{lc.total_equity:.2f}U)  "
-            f"monitor_only={lc.monitor_only}"
-        )
-
-        if lc.monitor_only != currently_monitor_only:
-            if lc.monitor_only:
-                logger.warning(
-                    f"[supervisor] 整体流动性不足（{lc.cash_ratio*100:.1f}% "
-                    f"< {CASH_RATIO_MIN*100:.0f}%）→ 进入仅监控模式，停止开仓"
-                )
-            else:
-                logger.info(
-                    f"[supervisor] 流动性已恢复（{lc.cash_ratio*100:.1f}% "
-                    f"> {CASH_RATIO_RESUME*100:.0f}%）→ 退出仅监控模式"
-                )
-            self._risk.state.monitor_only = lc.monitor_only
 
     # ─── 转账执行 ─────────────────────────────────────────────────────────────
 
@@ -255,7 +227,12 @@ class RebalanceSupervisor:
 
             arrived = await self._poll_deposit(clients, t.target, timeout)
             if arrived:
-                logger.info(f"[supervisor] {t.target} 到账已确认")
+                logger.info(f"[supervisor] {t.target} 到账已确认，划转至期货账户…")
+                swept = await self._sweep_spot_to_futures(clients, t.target)
+                if not swept:
+                    logger.warning(
+                        f"[supervisor] {t.target} 现货→期货划转失败，请手动操作"
+                    )
             else:
                 logger.warning(
                     f"[supervisor] {t.target} 到账超时（{timeout}s），"
@@ -294,6 +271,32 @@ class RebalanceSupervisor:
             logger.debug(f"[supervisor] {exchange} 等待到账 {elapsed:.0f}s/{timeout_s:.0f}s")
 
         return False
+
+    async def _sweep_all_spot_to_futures(self, clients: dict):
+        """并发扫全部交易所现货余额，有余额则划入期货（兜底，单个失败不中断）。"""
+        await asyncio.gather(
+            *[self._sweep_spot_to_futures(clients, ex) for ex in clients],
+            return_exceptions=True,
+        )
+
+    async def _sweep_spot_to_futures(self, clients: dict, exchange: str) -> bool:
+        """将到账的现货/资金账户余额全部划入期货账户。"""
+        try:
+            spot = await clients[exchange].get_spot_balance()
+        except Exception as e:
+            logger.warning(f"[supervisor] {exchange} 查询现货余额失败: {e}")
+            return False
+
+        if spot < 0.5:
+            logger.debug(f"[supervisor] {exchange} 现货余额 {spot:.2f}U，无需划转")
+            return True
+
+        ok = await clients[exchange].transfer_to_futures(spot)
+        if ok:
+            logger.info(f"[supervisor] {exchange} 现货→期货划转 {spot:.2f}U 成功")
+        else:
+            logger.error(f"[supervisor] {exchange} 现货→期货划转 {spot:.2f}U 失败")
+        return ok
 
     # ─── 状态操作 ─────────────────────────────────────────────────────────────
 

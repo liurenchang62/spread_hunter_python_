@@ -112,6 +112,8 @@ python -m test_live.preflight
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 python -m tools.check_account
+python -m tools.sweep_to_futures --dry-run   # 现货 USDT → 期货（干跑）
+python -m tools.sweep_to_futures             # 实盘划转（需 api_keys_live）
 python -m tools.cashflow                   # 最近 7 天，全部 4 所
 python -m tools.cashflow --days 30
 python -m tools.cashflow --ex gate okx

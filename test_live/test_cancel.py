@@ -110,7 +110,9 @@ async def main(targets: list[str], auto_confirm: bool = False):
         if targets and name not in targets:
             continue
         exchange_sym = to_exchange_fmt(TEST_SYMBOL_INTERNAL, name)
-        qty, _ = compute_min_qty(mi, name, TEST_SYMBOL_INTERNAL, trx_price)
+        # 限价单挂在市价 50% 处，qty 必须保证 qty×limit_price >= MIN，用 limit_price 计算
+        limit_price_est = round(trx_price * 0.50, 6)
+        qty, _ = compute_min_qty(mi, name, TEST_SYMBOL_INTERNAL, limit_price_est)
         if qty <= 0:
             warn(f"{name.upper()}: 无法计算最小下单量，跳过")
             continue

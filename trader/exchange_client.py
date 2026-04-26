@@ -101,6 +101,7 @@ class BaseClient:
         target_qty: float,
         ref_price: float,
         symbol_info=None,    # SymbolInfo | None
+        reduce_only: bool = False,
     ) -> OrderResult:
         raise NotImplementedError
 
@@ -111,6 +112,7 @@ class BaseClient:
         target_qty: float,
         limit_price: float,
         symbol_info=None,
+        reduce_only: bool = False,
     ) -> OrderResult:
         raise NotImplementedError
 
@@ -128,6 +130,10 @@ class BaseClient:
 
     async def transfer_to_spot(self, amount: float) -> bool:
         """将期货账户 USDT 划转至现货/资金账户（提币前置步骤）。"""
+        raise NotImplementedError
+
+    async def transfer_to_futures(self, amount: float) -> bool:
+        """将现货/资金账户 USDT 划转至期货账户（到账后置步骤）。"""
         raise NotImplementedError
 
     async def get_spot_balance(self) -> float:
@@ -341,6 +347,21 @@ class BinanceClient(BaseClient):
         except Exception:
             return False
 
+    async def transfer_to_futures(self, amount: float) -> bool:
+        # Binance：现货 USDT → USDT-M 期货（type=1）
+        spot_base = "https://api.binance.com"
+        p, h = self._sign({"asset": "USDT", "amount": str(amount), "type": "1"})
+        try:
+            sess = await self._sess()
+            async with sess.post(
+                f"{spot_base}/sapi/v1/futures/transfer",
+                params=p, headers=h, ssl=False, **self._px(),
+            ) as r:
+                data = await r.json()
+            return r.status == 200 and "tranId" in data
+        except Exception:
+            return False
+
     async def get_spot_balance(self) -> float:
         # Binance 现货账户 USDT 余额
         spot_base = "https://api.binance.com"
@@ -464,7 +485,7 @@ class OKXClient(BaseClient):
 
     async def place_order(
         self, symbol: str, side: str, target_qty: float,
-        ref_price: float, symbol_info=None,
+        ref_price: float, symbol_info=None, reduce_only: bool = False,
     ) -> OrderResult:
         # OKX：sz 单位为合约张数，1张 = ct_val base coins
         ct_val = symbol_info.native_ct_val if symbol_info else 0.01
@@ -472,23 +493,38 @@ class OKXClient(BaseClient):
         if sz <= 0:
             return OrderResult(success=False, error="sz=0")
 
-        # Demo 交易优先使用 isolated 模式（cross 需要多币种保证金模式）
-        # 先尝试双向模式 (long/short)，如果失败会自动回退到单向模式 (net)
-        body_d = {"instId": symbol, "tdMode": "isolated",
-                  "side": side.lower(), "posSide": "net",
-                  "ordType": "market", "sz": str(sz)}
-        body = json.dumps(body_d)
-        path   = "/api/v5/trade/order"
-        try:
+        path = "/api/v5/trade/order"
+
+        async def _try(pos_side: str) -> dict:
+            body_d = {"instId": symbol, "tdMode": "isolated",
+                      "side": side.lower(), "posSide": pos_side,
+                      "ordType": "market", "sz": str(sz)}
+            body = json.dumps(body_d)
             sess = await self._sess()
             async with sess.post(
                 f"{self.base}{path}", headers=self._sign("POST", path, body),
                 data=body, ssl=False, **self._px(),
             ) as r:
-                data = await r.json()
+                return await r.json()
+
+        try:
+            data = await _try("net")
+            # 51000 = posSide 参数错误（账户处于双向持仓模式，需要 long/short）
+            if data.get("code") == "1" and any(
+                d.get("sCode") in ("51000",) and "posSide" in d.get("sMsg", "")
+                for d in data.get("data", [])
+            ):
+                # 双向持仓模式：reduce_only=False(开仓) buy→long sell→short
+                #               reduce_only=True(平仓)  sell→long buy→short
+                if reduce_only:
+                    hedge_side = "long" if side.lower() == "sell" else "short"
+                else:
+                    hedge_side = "long" if side.lower() == "buy" else "short"
+                data = await _try(hedge_side)
+
             if data.get("code") == "0":
-                order_id  = data["data"][0].get("ordId", "")
-                fill_size = sz * ct_val
+                order_id   = data["data"][0].get("ordId", "")
+                fill_size  = sz * ct_val
                 fill_price = await self._query_fill_price(symbol, order_id, ref_price)
                 return OrderResult(
                     success=True, order_id=order_id,
@@ -527,30 +563,44 @@ class OKXClient(BaseClient):
 
     async def place_limit_order(
         self, symbol: str, side: str, target_qty: float,
-        limit_price: float, symbol_info=None,
+        limit_price: float, symbol_info=None, reduce_only: bool = False,
     ) -> OrderResult:
         ct_val = symbol_info.native_ct_val if symbol_info else 0.01
         sz = _to_contracts(target_qty, ct_val)
         if sz <= 0:
             return OrderResult(success=False, error="sz=0")
-        body_d = {"instId": symbol, "tdMode": "isolated",
-                  "side": side.lower(), "posSide": "net",
-                  "ordType": "limit", "sz": str(sz), "px": str(limit_price)}
-        body = json.dumps(body_d)
+
         path = "/api/v5/trade/order"
-        try:
+
+        async def _try(pos_side: str) -> dict:
+            body_d = {"instId": symbol, "tdMode": "isolated",
+                      "side": side.lower(), "posSide": pos_side,
+                      "ordType": "limit", "sz": str(sz), "px": str(limit_price)}
+            body = json.dumps(body_d)
             sess = await self._sess()
             async with sess.post(
                 f"{self.base}{path}", headers=self._sign("POST", path, body),
                 data=body, ssl=False, **self._px(),
             ) as r:
-                data = await r.json()
+                return await r.json()
+
+        try:
+            data = await _try("net")
+            if data.get("code") == "1" and any(
+                d.get("sCode") in ("51000",) and "posSide" in d.get("sMsg", "")
+                for d in data.get("data", [])
+            ):
+                if reduce_only:
+                    hedge_side = "long" if side.lower() == "sell" else "short"
+                else:
+                    hedge_side = "long" if side.lower() == "buy" else "short"
+                data = await _try(hedge_side)
+
             if data.get("code") == "0":
                 return OrderResult(
                     success=True, order_id=data["data"][0].get("ordId", ""),
                     fill_price=limit_price, fill_size=sz * ct_val,
                 )
-            # 51010 = 当前账户模式不支持此操作
             if data.get("code") == "1" and any(d.get("sCode") == "51010" for d in data.get("data", [])):
                 return OrderResult(
                     success=False,
@@ -617,6 +667,20 @@ class OKXClient(BaseClient):
     async def transfer_to_spot(self, amount: float) -> bool:
         # OKX：交易账户（18）→ 资金账户（6）
         body_d = {"ccy": "USDT", "amt": str(amount), "from": "18", "to": "6",
+                  "type": "0"}
+        body = json.dumps(body_d)
+        path = "/api/v5/asset/transfer"
+        sess = await self._sess()
+        async with sess.post(
+            f"{self.base}{path}", headers=self._sign("POST", path, body),
+            data=body, ssl=False, **self._px(),
+        ) as r:
+            data = await r.json()
+        return data.get("code") == "0"
+
+    async def transfer_to_futures(self, amount: float) -> bool:
+        # OKX：资金账户（6）→ 交易账户（18）
+        body_d = {"ccy": "USDT", "amt": str(amount), "from": "6", "to": "18",
                   "type": "0"}
         body = json.dumps(body_d)
         path = "/api/v5/asset/transfer"
@@ -886,6 +950,20 @@ class GateClient(BaseClient):
         # Gate.io：期货 USDT → 现货 USDT
         body_d = {"currency": "USDT", "amount": str(amount),
                   "from": "futures", "to": "spot"}
+        body = json.dumps(body_d)
+        path = "/api/v4/wallet/transfers"
+        sess = await self._sess()
+        async with sess.post(
+            f"{self.base}{path}", headers=self._sign("POST", path, body),
+            data=body, ssl=False, **self._px(),
+        ) as r:
+            data = await r.json()
+        return r.status in (200, 201)
+
+    async def transfer_to_futures(self, amount: float) -> bool:
+        # Gate.io：现货 USDT → 期货 USDT
+        body_d = {"currency": "USDT", "amount": str(amount),
+                  "from": "spot", "to": "futures"}
         body = json.dumps(body_d)
         path = "/api/v4/wallet/transfers"
         sess = await self._sess()
@@ -1293,6 +1371,23 @@ class BitgetClient(BaseClient):
         # Bitget：期货账户 → 现货账户
         body_d = {
             "fromType": "usdt_futures", "toType": "spot",
+            "amount": str(amount), "coin": "USDT",
+        }
+        body = json.dumps(body_d)
+        path = "/api/v2/spot/wallet/transfer"
+        sess = await self._sess()
+        async with sess.post(
+            f"{self.base}{path}",
+            headers=self._sign("POST", path, body, use_pap=False),
+            data=body, ssl=False, **self._px(),
+        ) as r:
+            data = await r.json()
+        return str(data.get("code", "")) == "00000"
+
+    async def transfer_to_futures(self, amount: float) -> bool:
+        # Bitget：现货账户 → 期货账户
+        body_d = {
+            "fromType": "spot", "toType": "usdt_futures",
             "amount": str(amount), "coin": "USDT",
         }
         body = json.dumps(body_d)

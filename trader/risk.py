@@ -24,7 +24,6 @@ from trader.config import (
     DAILY_HALT_PCT,
     FAILURE_COOLDOWN_S,
     MAX_CONSECUTIVE_FAILS,
-    MAX_EXPOSURE_PCT,
     MAX_ORDERS_PER_MIN,
     REBALANCE_WARN_PCT,
 )
@@ -45,18 +44,16 @@ _BALANCE_PATHS = {
 class RiskState:
     day_start_total: float = 0.0          # 日初总余额（USDT）
     day_start_by_ex: dict = field(default_factory=dict)  # {exchange: balance}
-    balance:         dict = field(default_factory=dict)  # 当前缓存余额
-    total_exposure:  float = 0.0          # 当前敞口名义价值（两腿之和，USDT）
+    balance:         dict = field(default_factory=dict)  # 当前缓存余额（期货可用，per-exchange）
     consecutive_fails: int = 0
     cooldown_until:  float = 0.0          # monotonic 时间戳
     order_times:     dict = field(default_factory=dict)  # {exchange: deque[float]}
     halted:          bool = False
     halt_reason:     str  = ""
-    halt_type:       str  = ""            # "daily_loss" | "exposure" | ""
+    halt_type:       str  = ""            # "daily_loss" | ""
 
     # 再平衡控制（由 RebalanceSupervisor 设置）
     rebalance_paused: bool = False        # True = 再平衡进行中，暂停开仓
-    monitor_only:     bool = False        # True = 整体流动性不足，仅平仓不开仓
 
 
 class RiskManager:
@@ -98,11 +95,14 @@ class RiskManager:
         big: str,
         small: str,
         symbol: str,
-        notional_usdt: float,
+        leg_budget: float,
     ) -> tuple[bool, str]:
         """
         返回 (can_open: bool, reason: str)。
         仅读缓存状态，不做任何 I/O。
+
+        单所仅平逻辑：分别检查 big/small 各所期货可用余额是否能覆盖本单单腿预算。
+        某所余额不足时，仅涉及该所的配对被拒绝，其余配对照常开仓。
         """
         s = self.state
 
@@ -116,7 +116,7 @@ class RiskManager:
             remaining = s.cooldown_until - now_mono
             return False, f"failure_cooldown({remaining:.0f}s)"
 
-        # 日止损检查（每次开仓前用最新缓存余额估算）
+        # 日止损检查
         total_now = sum(s.balance.values()) if s.balance else s.day_start_total
         if s.day_start_total > 0 and total_now < s.day_start_total * DAILY_HALT_PCT:
             self._trigger_halt(
@@ -125,14 +125,13 @@ class RiskManager:
             )
             return False, s.halt_reason
 
-        # 敞口检查
-        total_balance = total_now if total_now > 0 else s.day_start_total
-        if total_balance > 0:
-            new_exposure = s.total_exposure + notional_usdt
-            if new_exposure > total_balance * MAX_EXPOSURE_PCT:
+        # 单所可用余额检查（per-exchange close-only）
+        # 规则：单腿预算不能超过该所期货可用余额（保证下单时有足够保证金）
+        for ex in (big, small):
+            bal = s.balance.get(ex, 0.0)
+            if bal < leg_budget:
                 return False, (
-                    f"exposure {new_exposure:.2f} > "
-                    f"limit {total_balance * MAX_EXPOSURE_PCT:.2f}"
+                    f"{ex} 可用余额不足 ({bal:.2f}U < {leg_budget:.2f}U)，该所仅平仓"
                 )
 
         # 下单频率（per-exchange）
@@ -164,13 +163,10 @@ class RiskManager:
                 )
 
     def on_position_opened(self, notional_usdt: float) -> None:
-        self.state.total_exposure += notional_usdt
+        pass  # 余额由后台 60s 刷新反映，不需要手动追踪敞口
 
     def on_position_closed(self, notional_usdt: float, realized_pnl: float) -> None:
-        self.state.total_exposure = max(0.0, self.state.total_exposure - notional_usdt)
-        # 平仓后更新缓存余额（估算，避免等下次真实刷新）
-        for ex in self.state.balance:
-            pass  # 实际余额由后台循环刷新，此处不估算（避免双重修改）
+        pass  # 同上
 
     # ─── 日重置（UTC 午夜调用）───────────────────────────────────────────────
 
@@ -266,7 +262,6 @@ class RiskManager:
             "halted":          s.halted,
             "halt_type":       s.halt_type,
             "halt_reason":     s.halt_reason,
-            "total_exposure":  s.total_exposure,
             "balance":         dict(s.balance),
             "day_start_total": s.day_start_total,
             "consecutive_fails": s.consecutive_fails,

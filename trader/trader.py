@@ -170,12 +170,9 @@ class Trader:
         if self._loop is None:
             return
 
-        # 再平衡暂停 / 整体流动性不足 → 禁止开仓（平仓不受影响）
+        # 再平衡暂停 → 禁止开仓（平仓不受影响）
         if self.risk.state.rebalance_paused:
             logger.info("[trader] 再平衡进行中，暂停开仓")
-            return
-        if self.risk.state.monitor_only:
-            logger.info("[trader] 整体流动性不足（仅监控模式），禁止开仓")
             return
 
         # 会话开仓上限检查
@@ -221,9 +218,8 @@ class Trader:
         # 确保单腿资金不低于最小名义价值要求（两腿必须一致）
         leg_budget = max(leg_budget, MIN_ORDER_NOTIONAL_USDT)
 
-        # 风控检查（同步，纯内存缓存）；名义价值用单腿资金粗估（两腿）
-        notional = leg_budget * 2
-        ok, reason = self.risk.check_can_open(big, small, sym, notional)
+        # 风控检查（同步，纯内存缓存）：单腿预算 vs 各所可用余额
+        ok, reason = self.risk.check_can_open(big, small, sym, leg_budget)
         if not ok:
             logger.info(f"[trader] 拒绝 {sym} {big}/{small} | 风控: {reason}")
             return
@@ -451,11 +447,13 @@ class Trader:
             symbol=pos.small_leg.symbol, side=small_close_side,
             target_qty=pos.small_leg.size_base, ref_price=p_small,
             symbol_info=self.mi.get_symbol_info(pos.small_exchange, pos.symbol),
+            reduce_only=True,
         )
         big_task = self.clients[pos.big_exchange].place_order(
             symbol=pos.big_leg.symbol, side=big_close_side,
             target_qty=pos.big_leg.size_base, ref_price=p_big,
             symbol_info=self.mi.get_symbol_info(pos.big_exchange, pos.symbol),
+            reduce_only=True,
         )
         small_res, big_res = await asyncio.gather(small_task, big_task)
 
@@ -629,6 +627,7 @@ class Trader:
                 symbol=small_sym, side=rev, target_qty=small_res.fill_size,
                 ref_price=ev.small_mid,
                 symbol_info=self.mi.get_symbol_info(ev.small_exchange, ev.symbol),
+                reduce_only=True,
             ))
         if big_res.success and big_res.fill_size > 0:
             rev = "sell" if big_side == "buy" else "buy"
@@ -636,6 +635,7 @@ class Trader:
                 symbol=big_sym, side=rev, target_qty=big_res.fill_size,
                 ref_price=ev.big_mid,
                 symbol_info=self.mi.get_symbol_info(ev.big_exchange, ev.symbol),
+                reduce_only=True,
             ))
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)

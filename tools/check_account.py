@@ -32,15 +32,17 @@ async def _query_exchange(ex: str, keys: dict) -> dict:
     }
     client = cls_map[ex](live=True, keys=keys)
     try:
-        balance, total, positions = await asyncio.gather(
+        balance, total, spot, positions = await asyncio.gather(
             client.get_balance(),
             client.get_total_balance(),
+            client.get_spot_balance(),
             client.get_positions(),
             return_exceptions=True,
         )
         return {
             "balance":   balance   if isinstance(balance,   float) else 0.0,
             "total":     total     if isinstance(total,     float) else 0.0,
+            "spot":      spot      if isinstance(spot,      float) else 0.0,
             "positions": positions if isinstance(positions, list)  else [],
             "error":     None,
         }
@@ -60,23 +62,28 @@ def _fmt(v: float) -> str:
 
 def _print_results(results: dict[str, dict]):
     # ── 余额汇总表 ────────────────────────────────────────────────────────
-    print("\n╔══ 余额概览 ═════════════════════════════════════════════════════╗")
-    print(f"  {'交易所':<10} {'可用余额':>10} {'总权益':>10} {'占用保证金':>12} {'使用率':>8}")
-    print(f"  {'-'*10} {'-'*10} {'-'*10} {'-'*12} {'-'*8}")
-    total_avail = total_equity = 0.0
+    print("\n╔══ 余额概览（合约账户） ══════════════════════════════════════════════╗")
+    print(f"  {'交易所':<10} {'合约可用':>10} {'合约权益':>10} {'占用保证金':>12} {'使用率':>8} {'现货(待划)':>12}")
+    print(f"  {'-'*10} {'-'*10} {'-'*10} {'-'*12} {'-'*8} {'-'*12}")
+    total_avail = total_equity = total_spot = 0.0
     for ex, r in results.items():
         if r["error"]:
             print(f"  {ex:<10} {'[查询失败]':>10}  {r['error'][:30]}")
             continue
         avail  = r["balance"]
         equity = r["total"]
+        spot   = r.get("spot", 0.0)
         locked = max(0.0, equity - avail)
         usage  = locked / equity * 100 if equity > 0 else 0.0
+        spot_flag = f" ⚠" if spot > 0.5 else ""
         total_avail  += avail
         total_equity += equity
-        print(f"  {ex:<10} {_fmt(avail)} {_fmt(equity)} {_fmt(locked)} {usage:>7.1f}%")
-    print(f"  {'合计':<10} {_fmt(total_avail)} {_fmt(total_equity)}")
-    print("╚═══════════════════════════════════════════════════════════════╝")
+        total_spot   += spot
+        print(f"  {ex:<10} {_fmt(avail)} {_fmt(equity)} {_fmt(locked)} {usage:>7.1f}% {_fmt(spot)}{spot_flag}")
+    print(f"  {'合计':<10} {_fmt(total_avail)} {_fmt(total_equity)} {'':>12} {'':>8} {_fmt(total_spot)}")
+    if total_spot > 0.5:
+        print(f"\n  ⚠  现货账户有 {total_spot:.2f}U 未划入期货，运行 python -m tools.sweep_to_futures 一键划转")
+    print("╚═══════════════════════════════════════════════════════════════════╝")
 
     # ── 各所持仓 ──────────────────────────────────────────────────────────
     any_pos = False

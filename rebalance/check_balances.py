@@ -18,10 +18,10 @@ from rebalance._common import (
     load_live_clients, close_all,
     fetch_all_states, check_rebalance, check_liquidity,
     ExchangeState, RebalanceCheck, LiquidityCheck,
+    _CASH_RATIO_MIN as CASH_RATIO_MIN,
+    _CASH_RATIO_RESUME as CASH_RATIO_RESUME,
 )
-from trader.config import (
-    REBALANCE_FLOOR_PCT, CASH_RATIO_MIN, CASH_RATIO_RESUME,
-)
+from trader.config import REBALANCE_FLOOR_PCT
 
 
 def print_state_table(states: dict[str, ExchangeState]):

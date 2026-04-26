@@ -31,10 +31,11 @@ from rebalance._common import (
     fetch_all_states, fetch_all_fees,
     check_rebalance, check_liquidity,
     plan_transfers, Transfer, TransferPath,
+    _CASH_RATIO_MIN as CASH_RATIO_MIN,
+    _CASH_RATIO_RESUME as CASH_RATIO_RESUME,
 )
 from trader.config import (
     REBALANCE_FLOOR_PCT, REBALANCE_CONFIRM_TIMEOUT_S,
-    CASH_RATIO_MIN, CASH_RATIO_RESUME,
 )
 from clients.withdrawal_addresses import get_deposit_address
 

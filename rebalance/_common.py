@@ -22,8 +22,6 @@ from trader.config import (
     REBALANCE_MIN_TRANSFER_PCT,
     REBALANCE_FEE_CEIL_PCT,
     REBALANCE_CONFIRM_TIMEOUT_S,
-    CASH_RATIO_MIN,
-    CASH_RATIO_RESUME,
 )
 from clients.withdrawal_addresses import (
     ADDRESSES, NETWORK_NAMES,
@@ -77,13 +75,13 @@ class ExchangeState:
 
     @property
     def cash(self) -> float:
-        """可用现金 = 期货可用 + 现货可用"""
-        return self.available + self.spot
+        """可用现金 = 期货可用余额（不含现货/资金账户，仅统计可直接用于合约交易的资金）"""
+        return self.available
 
     @property
     def equity(self) -> float:
-        """总权益 = 期货总权益 + 现货（现货本身全为现金）"""
-        return self.total_futures + self.spot
+        """总权益 = 期货总权益（含已用保证金和未实现盈亏，不含现货账户）"""
+        return self.total_futures
 
 
 async def _fetch_one(ex: str, client) -> ExchangeState:
@@ -158,17 +156,6 @@ class RebalanceCheck:
     reason:  str = ""
 
 
-@dataclass
-class LiquidityCheck:
-    """整体流动性检查结果。"""
-    cash_ratio:  float          # total_cash / total_equity
-    total_cash:  float
-    total_equity: float
-    monitor_only: bool          # True = 低于 CASH_RATIO_MIN
-    recovering:   bool          # True = 在 monitor_only 模式中，但已超过 RESUME 线
-    reason:  str = ""
-
-
 def check_rebalance(states: dict[str, ExchangeState]) -> RebalanceCheck:
     """
     检查单所再平衡触发条件：
@@ -210,41 +197,41 @@ def check_rebalance(states: dict[str, ExchangeState]) -> RebalanceCheck:
     return RebalanceCheck(True, total_cash, target, floor, sinks, sources)
 
 
+# ── 流动性诊断（仅供独立工具使用，不再由 supervisor 调用）────────────────────────
+
+_CASH_RATIO_MIN    = 0.30
+_CASH_RATIO_RESUME = 0.40
+
+@dataclass
+class LiquidityCheck:
+    cash_ratio:   float
+    total_cash:   float
+    total_equity: float
+    monitor_only: bool
+    recovering:   bool
+    reason: str = ""
+
+
 def check_liquidity(
     states: dict[str, ExchangeState],
-    currently_monitor_only: bool,
+    currently_monitor_only: bool = False,
 ) -> LiquidityCheck:
-    """
-    检查整体流动性：
-      cash_ratio = total_cash / total_equity
-
-    迟滞逻辑：
-      进入 monitor_only: cash_ratio < CASH_RATIO_MIN
-      退出 monitor_only: cash_ratio > CASH_RATIO_RESUME
-    """
+    """诊断工具：计算 cash_ratio 并给出流动性状态（仅用于 check_balances / run 等手动工具）。"""
     if not states:
         return LiquidityCheck(0, 0, 0, False, False, "无数据")
-
     total_cash   = sum(s.cash   for s in states.values())
     total_equity = sum(s.equity for s in states.values())
-
     if total_equity == 0:
         return LiquidityCheck(0, total_cash, 0, False, False, "权益为零")
-
     ratio = total_cash / total_equity
-
     if currently_monitor_only:
-        # 已在 monitor_only 中：只有超过 RESUME 才恢复
-        monitor_only = ratio <= CASH_RATIO_RESUME
-        recovering   = ratio > CASH_RATIO_RESUME
+        monitor_only = ratio <= _CASH_RATIO_RESUME
+        recovering   = ratio >  _CASH_RATIO_RESUME
     else:
-        monitor_only = ratio < CASH_RATIO_MIN
+        monitor_only = ratio <  _CASH_RATIO_MIN
         recovering   = False
-
-    reason = (
-        f"cash_ratio={ratio*100:.1f}%  "
-        f"(现金{total_cash:.2f}U / 权益{total_equity:.2f}U)"
-    )
+    reason = (f"cash_ratio={ratio*100:.1f}%  "
+              f"(现金{total_cash:.2f}U / 权益{total_equity:.2f}U)")
     return LiquidityCheck(ratio, total_cash, total_equity, monitor_only, recovering, reason)
 
 
