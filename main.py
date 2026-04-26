@@ -72,6 +72,14 @@ async def _async_main(live: bool) -> int:
 
     print(_banner(live))
 
+    # ── 实盘下单验证（only when live, after user confirmed）─────────────────
+    if live:
+        from test_live.preflight import run_order_tests
+        logger.info("[main] 运行下单验证测试（auto_confirm）…")
+        order_ok = await run_order_tests()
+        if not order_ok:
+            logger.warning("[main] 下单验证存在失败项，但用户已确认，继续启动")
+
     # ── 初始化 ────────────────────────────────────────────────────────────────
     tracker    = Tracker()
     trader     = Trader(tracker)
@@ -184,11 +192,24 @@ def main():
     args = parser.parse_args()
 
     if args.live:
-        confirm = input(
-            "\033[31m警告：即将启动主网实盘模式，将使用真实资金！\n"
-            "请输入 YES 确认: \033[0m"
-        )
-        if confirm.strip() != "YES":
+        # ── Step 1: 只读检查（自动，无确认）─────────────────────────────────
+        print("\033[36m正在运行启动前检查（只读，无资金操作）…\033[0m\n")
+        from test_live.preflight import run_readonly
+        readonly_ok = asyncio.run(run_readonly())
+
+        # ── Step 2: 单次确认（含授权后续下单测试）──────────────────────────
+        if readonly_ok:
+            prompt = (
+                "\033[32m只读检查全部通过。\033[0m\n"
+                "\033[31m即将进行下单验证（消耗少量手续费）并启动实盘交易。\n"
+                "请输入 YES 确认: \033[0m"
+            )
+        else:
+            prompt = (
+                "\033[31m部分只读检查失败，请确认问题后再决定是否继续。\n"
+                "输入 YES 强制继续（含下单验证 + 实盘），其他取消: \033[0m"
+            )
+        if input(prompt).strip() != "YES":
             print("已取消。")
             return
 

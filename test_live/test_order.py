@@ -63,7 +63,7 @@ async def _place_min_order(name: str, client, exchange_symbol: str,
     return True
 
 
-async def main(targets: list[str]):
+async def main(targets: list[str], auto_confirm: bool = False):
     section("实盘最小市价单测试 ⚠️ 真实资金")
 
     clients = load_live_clients()
@@ -111,7 +111,7 @@ async def main(targets: list[str]):
     money(f"  合计将花费约 {total_notional:.4f} USDT 资金（立即平仓，净亏损预计仅手续费）")
 
     # ── 全局确认 ─────────────────────────────────────────────────────────────
-    if not confirm(f"执行以上 {len(plans)} 个交易所的最小市价单测试？"):
+    if not auto_confirm and not confirm(f"执行以上 {len(plans)} 个交易所的最小市价单测试？"):
         print("  已取消。")
         for c in clients.values(): await c.close()
         return
@@ -120,7 +120,7 @@ async def main(targets: list[str]):
     results = {}
     for name, (qty, notional, exchange_sym) in plans.items():
         print()
-        if not confirm_each(name, f"买入 {qty:.6f} TRX ≈ {notional:.4f} USDT 并立即平仓"):
+        if not auto_confirm and not confirm_each(name, f"买入 {qty:.6f} TRX ≈ {notional:.4f} USDT 并立即平仓"):
             warn(f"{name.upper()} 跳过")
             results[name] = "skip"
             continue

@@ -30,12 +30,24 @@ from trader.config import MIN_ORDER_NOTIONAL_USDT
 G = "\033[32m"; R = "\033[31m"; Y = "\033[33m"; C = "\033[36m"; W = "\033[0m"
 B = "\033[1m"
 
+_fail_count: int = 0
+
 def ok(msg):        print(f"  {G}[OK]  {msg}{W}")
-def fail(msg):      print(f"  {R}[ERR] {msg}{W}")
+def fail(msg):
+    global _fail_count
+    _fail_count += 1
+    print(f"  {R}[ERR] {msg}{W}")
 def warn(msg):      print(f"  {Y}[!]   {msg}{W}")
 def info(msg):      print(f"        {msg}")
 def section(title): print(f"\n{C}{B}{'─'*56}\n  {title}\n{'─'*56}{W}")
 def money(msg):     print(f"  {R}{B}[$$]  {msg}{W}")
+
+def reset_fail_count() -> None:
+    global _fail_count
+    _fail_count = 0
+
+def get_fail_count() -> int:
+    return _fail_count
 
 # ─── 实盘测试合约（USDT-M 永续，各所最低流动性代币）──────────────────────────
 # 使用 TRX（Tron）：价格低（约 $0.25），全 4 所均有合约，合约单位小

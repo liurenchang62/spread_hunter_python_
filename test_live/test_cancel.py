@@ -82,7 +82,7 @@ async def _test_one(name: str, client, exchange_symbol: str,
         warn(f"撤单后查询异常: {e}")
 
 
-async def main(targets: list[str]):
+async def main(targets: list[str], auto_confirm: bool = False):
     section("实盘限价单撤单测试 ⚠️ 需要账户有余额")
 
     clients = load_live_clients()
@@ -101,7 +101,7 @@ async def main(targets: list[str]):
     info(f"  TRX 当前价: {trx_price:.6f} USDT")
 
     # 单次总体确认
-    if not confirm("执行各所限价单挂单+撤单测试（订单不会成交，仅占用保证金几秒）？"):
+    if not auto_confirm and not confirm("执行各所限价单挂单+撤单测试（订单不会成交，仅占用保证金几秒）？"):
         print("  已取消。")
         for c in clients.values(): await c.close()
         return
