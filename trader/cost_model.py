@@ -21,6 +21,7 @@ from trader.config import (
     CONVERGENCE_PCT,
     HOLD_ESTIMATE_S,
     MIN_NET_ROI,
+    MIN_ORDER_NOTIONAL_USDT,
     PAIR_CAPITAL_FALLBACK_USDT,
     SLIPPAGE_MULTIPLIER,
 )
@@ -83,6 +84,16 @@ def evaluate(
         return _reject("lot size 数据缺失或预算不足", 0.0, 0.0)
 
     target_qty = min(qty_small, qty_big)
+
+    # 校验两腿实际名义价值均满足最小下单要求
+    notional_small = target_qty * p_small
+    notional_big   = target_qty * p_big
+    if notional_small < MIN_ORDER_NOTIONAL_USDT or notional_big < MIN_ORDER_NOTIONAL_USDT:
+        return _reject(
+            f"名义价值不足: small={notional_small:.2f}U big={notional_big:.2f}U "
+            f"(min={MIN_ORDER_NOTIONAL_USDT}U)",
+            target_qty, 0.0,
+        )
 
     # 3. 毛利润
     #    gross = target_qty × p_small × (A - C) / 100
