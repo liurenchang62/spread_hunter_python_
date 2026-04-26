@@ -34,20 +34,23 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
 
 from clients import to_exchange_fmt
 from tracker.models import MarketEvent, Tick
+import trader.config as _trader_cfg
 from trader.config import (
     CONVERGENCE_PCT,
-    LEVERAGE,
     LIVE_TRADING_ON,
     MAX_HOLD_SECONDS,
     MIN_ANOMALY_TO_OPEN_PCT,
     PAIR_CAPITAL_PCT,
     PAIR_CAPITAL_FALLBACK_USDT,
     MIN_ORDER_NOTIONAL_USDT,
-    SESSION_MAX_ENTRIES,
     STOP_LOSS_PCT,
     TESTNET_EXCHANGES,
     MARKET_INFO_REFRESH_H,
 )
+
+# 与旧版仅复制 config.example 的部署兼容（未定义时使用安全默认）
+LEVERAGE = getattr(_trader_cfg, "LEVERAGE", 1)
+SESSION_MAX_ENTRIES = getattr(_trader_cfg, "SESSION_MAX_ENTRIES", None)
 from trader.cost_model import evaluate as cost_evaluate
 from trader.exchange_client import build_clients, OrderResult
 from trader.market_info import MarketInfo, refresh_market_info
