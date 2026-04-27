@@ -8,8 +8,8 @@
     env/ (recursive)
 
   Usage (repo root):
-    powershell -ExecutionPolicy Bypass -File .\scripts\sync_secrets_to_server.ps1
-    powershell -ExecutionPolicy Bypass -File .\scripts\sync_secrets_to_server.ps1 -Server "x.x.x.x"
+    powershell -ExecutionPolicy Bypass -File .\server\sync_secrets_to_server.ps1
+    powershell -ExecutionPolicy Bypass -File .\server\sync_secrets_to_server.ps1 -Server "x.x.x.x"
 #>
 param(
     [string] $Server = $(if ($env:SPREAD_HUNTER_SERVER) { $env:SPREAD_HUNTER_SERVER } else { "45.76.202.248" }),

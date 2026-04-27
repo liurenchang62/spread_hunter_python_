@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================================================
 # 服务器安全部署脚本
-# 
+#
 # 用途：在 Vultr 等云服务器上安全部署 Spread Hunter 交易系统
 # 功能：
 #   1. 安装 Python 依赖
@@ -9,9 +9,9 @@
 #   3. 设置文件权限保护
 #   4. 配置实盘/模拟盘 API Key
 #
-# 使用方法：
-#   chmod +x deploy_server.sh
-#   ./deploy_server.sh
+# 使用方法（SSH 登录后，仓库根目录 /root/spread_hunter_python）：
+#   chmod +x server/deploy_server.sh
+#   ./server/deploy_server.sh
 # =============================================================================
 
 set -e  # 遇到错误立即退出

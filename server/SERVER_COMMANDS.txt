@@ -3,43 +3,59 @@
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ① 一键同步：所有「不进 Git」的敏感/本地配置 → 服务器（在本机执行）
+# ① 不经 GitHub：按本机 Git 状态直传服务器（密码用环境变量）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #
-# 上传内容（本机存在才传）：trader/config.py、trader_config.ref.txt、
-#   clients/api_keys.py、api_keys_live.py、api_keys_demo.py、withdrawal_addresses.py、
-#   以及整个 env/ 目录（若有）。
-# 代码仍请在服务器 git pull，本脚本只补 .gitignore 里的文件。
+# 本机先安装：pip install -r server/requirements.txt
 #
-# 在仓库根目录 PowerShell：
+# 环境变量（Windows 可在「系统环境变量」里设置，或当前会话）：
+#   SERVER_PASSWORD     — 必填，SSH 登录密码（脚本内自动填入，无需交互）
+#   SERVER_HOST         — 可选，默认与下项相同
+#   SPREAD_HUNTER_SERVER — 可选，未设 SERVER_HOST 时用（默认 45.76.202.248）
+#   SERVER_USER         — 可选，默认 root
+#   SERVER_REMOTE         — 可选，默认 /root/spread_hunter_python
+#   SERVER_PORT           — 可选，默认 22
+#
+# 模式说明：
+#   --mode all     — 与「git 跟踪的改动 + 未跟踪且未被 ignore 的文件」一致，
+#                    并在远程删除「相对 HEAD 已删除且非 ignore」的路径（与本地工作区对齐）。
+#   --mode ignored — 上传被 ignore 的「机密与本地配置」（默认会跳过 .venv、__pycache__、
+#                    logs/、tools/out/ 等；与旧 scp 脚本意图一致）。若确需连虚拟环境等
+#                    一并镜像，请加：--full-ignored
+#                    上传后会对 api_keys* / withdrawal_addresses、env/.env 做 chmod。
+#
+# 在仓库根目录（PowerShell / cmd 均可）：
 
-powershell -ExecutionPolicy Bypass -File .\scripts\sync_secrets_to_server.ps1
+python server/sync_to_server.py --mode all
+python server/sync_to_server.py --mode ignored
 
-# 指定 IP：
-# powershell -ExecutionPolicy Bypass -File .\scripts\sync_secrets_to_server.ps1 -Server "你的IP"
-# 或先设环境变量：$env:SPREAD_HUNTER_SERVER = "你的IP"
+# 仅打印将执行的操作：
+# python server/sync_to_server.py --mode all --dry-run
+
+# 仍可用 SSH 密钥 + scp 的旧脚本（不上传 SERVER_PASSWORD；需本机已配好密钥）：
+# powershell -ExecutionPolicy Bypass -File .\server\sync_secrets_to_server.ps1
+# powershell -ExecutionPolicy Bypass -File .\server\sync_secrets_to_server.ps1 -Server "你的IP"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ② SSH 登录服务器
+# ② 已跟踪代码：服务器上 git pull（不进 Git 的机密仍用 ① 或 ignored 模式）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ssh root@45.76.202.248
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ③ 服务器上更新代码（已 SSH 登录后）
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 cd /root/spread_hunter_python
 git pull origin main
 
 # 若分叉需与远程 main 完全一致（慎用：丢弃服务器上对已跟踪文件的本地修改）：
 # cd /root/spread_hunter_python && git fetch origin && git reset --hard origin/main
+#
+# 首次部署 / 安装依赖 / 创建密钥目录与安全权限（在服务器仓库根目录执行）：
+# chmod +x server/deploy_server.sh
+# ./server/deploy_server.sh
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ④ 单项手动 scp（① 失败或只需补某一文件时；路径按本机修改）
+# ③ 单项手动 scp（① 失败或只需补某一文件时；路径按本机修改）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 # 交易参数（Demo / Live 共用路径；实盘记得 LIVE_TRADING_ON 等）

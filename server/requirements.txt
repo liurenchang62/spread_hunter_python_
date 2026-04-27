@@ -1,0 +1,2 @@
+# Optional: only needed for password-based SFTP sync (sync_to_server.py).
+paramiko>=3.4,<4

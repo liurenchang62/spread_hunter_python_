@@ -176,4 +176,4 @@ python -m rebalance.run --execute
 #
 # tools/out/cashflow_*.csv  — tools.cashflow 导出结果
 #
-# 服务器 SSH / git pull / scp 密钥：见同目录 SERVER_COMMANDS.txt
+# 服务器 SSH / git pull / 直传同步：见 server/SERVER_COMMANDS.txt

@@ -106,8 +106,8 @@ scp -r spread_hunter_python root@45.76.202.248:/root/
 ```bash
 ssh root@45.76.202.248
 cd /root/spread_hunter_python
-chmod +x deploy_server.sh
-./deploy_server.sh
+chmod +x server/deploy_server.sh
+./server/deploy_server.sh
 ```
 
 ### 3. 配置实盘 API Key
