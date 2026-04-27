@@ -114,6 +114,10 @@ python -m test_live.preflight
 python -m tools.check_account
 python -m tools.sweep_to_futures --dry-run   # 现货 USDT → 期货（干跑）
 python -m tools.sweep_to_futures             # 实盘划转（需 api_keys_live）
+# 导出 trader/config 参数；本机 --save 生成 ref，服务器 --compare ref 逐项对比
+python -m tools.dump_trader_config
+python -m tools.dump_trader_config --save trader_config.ref.txt
+python -m tools.dump_trader_config --compare trader_config.ref.txt
 python -m tools.cashflow                   # 最近 7 天，全部 4 所
 python -m tools.cashflow --days 30
 python -m tools.cashflow --ex gate okx
