@@ -1,49 +1,70 @@
-# Spread Hunter — 服务器常用命令（速查）
-# 与 RUN.txt 配套：本文件专写「本机 ↔ 服务器」操作。
-# 默认 IP：45.76.202.248（若仓库公开托管，介意暴露 IP 可改回占位符或只用环境变量 + scripts/sync_secrets_to_server.ps1）
+# Spread Hunter — 本机 ↔ 服务器（与 RUN.txt 配套）
+# 默认 VPS：45.76.202.248（公开仓库可改为占位符或只用环境变量）
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 1. 进入服务器（在本机 PowerShell 执行）
+# ① 一键同步：所有「不进 Git」的敏感/本地配置 → 服务器（在本机执行）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#
+# 上传内容（本机存在才传）：trader/config.py、trader_config.ref.txt、
+#   clients/api_keys.py、api_keys_live.py、api_keys_demo.py、withdrawal_addresses.py、
+#   以及整个 env/ 目录（若有）。
+# 代码仍请在服务器 git pull，本脚本只补 .gitignore 里的文件。
+#
+# 在仓库根目录 PowerShell：
+
+powershell -ExecutionPolicy Bypass -File .\scripts\sync_secrets_to_server.ps1
+
+# 指定 IP：
+# powershell -ExecutionPolicy Bypass -File .\scripts\sync_secrets_to_server.ps1 -Server "你的IP"
+# 或先设环境变量：$env:SPREAD_HUNTER_SERVER = "你的IP"
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ② SSH 登录服务器
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ssh root@45.76.202.248
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 2. 在服务器上从 GitHub 更新代码（已 SSH 登录后执行）
+# ③ 服务器上更新代码（已 SSH 登录后）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 cd /root/spread_hunter_python
 git pull origin main
 
-# 若提示分叉无法合并，强制与远程 main 一致（慎用：会丢弃对已跟踪文件的本地修改）：
-# cd /root/spread_hunter_python
-# git fetch origin
-# git reset --hard origin/main
+# 若分叉需与远程 main 完全一致（慎用：丢弃服务器上对已跟踪文件的本地修改）：
+# cd /root/spread_hunter_python && git fetch origin && git reset --hard origin/main
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 3. 将本机「未进 Git」的配置/密钥推到服务器（在本机 PowerShell 执行）
+# ④ 单项手动 scp（① 失败或只需补某一文件时；路径按本机修改）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 下列文件通常在 .gitignore 中，需用 scp 单独同步。
-#
-# 一键同步（推荐，在本机 PowerShell、仓库根目录执行；依赖 SSH 密钥登录）：
-#   powershell -ExecutionPolicy Bypass -File .\scripts\sync_secrets_to_server.ps1
-# 或指定主机：powershell -ExecutionPolicy Bypass -File .\scripts\sync_secrets_to_server.ps1 -Server "你的IP"
-#
-# 手动逐条（路径按你本机盘符修改）：
-# 模拟盘 + 交易参数（必拷，跑 python main.py Demo 需要）
-scp D:\spread_hunter_python\clients\api_keys_demo.py root@45.76.202.248:/root/spread_hunter_python/clients/
+
+# 交易参数（Demo / Live 共用路径；实盘记得 LIVE_TRADING_ON 等）
 scp D:\spread_hunter_python\trader\config.py root@45.76.202.248:/root/spread_hunter_python/trader/
 
-# 实盘密钥（仅当服务器要跑 --live 时）
+# 与服务器对比参数用的快照（可选）
+scp D:\spread_hunter_python\trader_config.ref.txt root@45.76.202.248:/root/spread_hunter_python/
+
+# 模拟盘 / 测试网 Key（跑 python main.py 非 --live）
+scp D:\spread_hunter_python\clients\api_keys_demo.py root@45.76.202.248:/root/spread_hunter_python/clients/
+
+# 实盘 Key（python main.py --live / rebalance / tools 实盘）
 scp D:\spread_hunter_python\clients\api_keys_live.py root@45.76.202.248:/root/spread_hunter_python/clients/
 
-# 再平衡提币地址（实盘：python3 -m rebalance.run 或 main.py --live 下自动再平衡时需要）
+# 再平衡提币地址
 scp D:\spread_hunter_python\clients\withdrawal_addresses.py root@45.76.202.248:/root/spread_hunter_python/clients/
 
-# 拷完建议在服务器上执行（SSH 登录后）：
-# chmod 600 /root/spread_hunter_python/clients/api_keys_demo.py \
-#           /root/spread_hunter_python/clients/api_keys_live.py \
+# 旧版单文件密钥（若仍使用）
+scp D:\spread_hunter_python\clients\api_keys.py root@45.76.202.248:/root/spread_hunter_python/clients/
+
+# 代理等环境变量目录（若使用 env/.env）
+scp -r D:\spread_hunter_python\env root@45.76.202.248:/root/spread_hunter_python/
+
+# 上传后在服务器建议（SSH 内执行）：
+# chmod 600 /root/spread_hunter_python/clients/api_keys*.py \
 #           /root/spread_hunter_python/clients/withdrawal_addresses.py \
 #           /root/spread_hunter_python/trader/config.py
+# chmod 700 /root/spread_hunter_python/env 2>/dev/null; chmod 600 /root/spread_hunter_python/env/.env 2>/dev/null
