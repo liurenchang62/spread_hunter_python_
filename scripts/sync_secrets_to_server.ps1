@@ -79,8 +79,12 @@ if ($uploadedForChmod.Count -gt 0) {
 
 if (Test-Path -LiteralPath $envLocal) {
     Write-Host "SSH: chmod 700 env + 600 env/.env (if present) ..."
-    $envChmod = "chmod 700 ${RemoteBase}/env 2>/dev/null || true; test -f ${RemoteBase}/env/.env && chmod 600 ${RemoteBase}/env/.env || true"
+    # 必须用单引号 + -f：双引号里 2> 会被 PowerShell 当成重定向，导致解析错误
+    $envChmod = (
+        'chmod 700 {0}/env 2>/dev/null || true; test -f {0}/env/.env && chmod 600 {0}/env/.env || true' `
+        -f $RemoteBase
+    )
     & ssh -q $remoteHost $envChmod
 }
 
-Write-Host "DONE -> ${remoteHost}:${RemoteBase}"
+Write-Host ('DONE -> {0}:{1}' -f $remoteHost, $RemoteBase)
