@@ -41,6 +41,7 @@ clients/withdrawal_addresses.py
 
 # 本地 Trader 参数（代理、实盘开关等）
 trader/config.py
+trader_config.ref.txt
 
 # 密钥存储目录（如果使用文件方式存储密钥）
 /root/.secrets/
