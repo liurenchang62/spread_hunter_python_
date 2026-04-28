@@ -38,6 +38,19 @@ python server/sync_to_server.py --mode ignored
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ①‑b 一键登录服务器（同上环境变量 SERVER_PASSWORD）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#
+# Windows：优先用 PuTTY 的 plink.exe（可从环境变量带密码）。
+# 若出现 “plink.exe not found… Falling back to ssh.exe”，说明未装 PuTTY / plink：
+#   安装官方安装包：https://www.putty.org/（勾选 plink，默认在 Program Files\PuTTY\plink.exe）。
+#   或把独立 plink.exe 放到 PATH。未装 plink 时会用系统 ssh（一般需密钥，不会读 SERVER_PASSWORD）。
+#
+# .\server\login.bat
+# 或：powershell -ExecutionPolicy Bypass -File .\server\login.ps1
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ② 已跟踪代码：服务器上 git pull（不进 Git 的机密仍用 ① 或 ignored 模式）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
