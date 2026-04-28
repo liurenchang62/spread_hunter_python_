@@ -1,99 +1,64 @@
-# Spread Hunter — 本机 ↔ 服务器（与 RUN.txt 配套）
-# 默认 VPS：45.76.202.248（公开仓库可改为占位符或只用环境变量）
+# Spread Hunter — 本机 ↔ 服务器同步说明
+# 默认 VPS：45.76.202.248（可改 SERVER_HOST 环境变量）
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ① 不经 GitHub：按本机 Git 状态直传服务器（密码用环境变量）
+# ① 已跟踪代码：本地 → GitHub → 服务器
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #
-# 本机先安装：pip install -r server/requirements.txt
+# 本地推送：
+git push origin main
 #
-# 环境变量（Windows 可在「系统环境变量」里设置，或当前会话）：
-#   SERVER_PASSWORD     — 必填，SSH 登录密码（脚本内自动填入，无需交互）
-#   SERVER_HOST         — 可选，默认与下项相同
-#   SPREAD_HUNTER_SERVER — 可选，未设 SERVER_HOST 时用（默认 45.76.202.248）
-#   SERVER_USER         — 可选，默认 root
-#   SERVER_REMOTE         — 可选，默认 /root/spread_hunter_python
-#   SERVER_PORT           — 可选，默认 22
+# 登录服务器后拉取：
+#   ssh root@45.76.202.248
+#   cd /root/spread_hunter_python
+#   git pull origin main
 #
-# 模式说明：
-#   --mode all     — 与「git 跟踪的改动 + 未跟踪且未被 ignore 的文件」一致，
-#                    并在远程删除「相对 HEAD 已删除且非 ignore」的路径（与本地工作区对齐）。
-#   --mode ignored — 上传被 ignore 的「机密与本地配置」（默认会跳过 .venv、__pycache__、
-#                    logs/、tools/out/ 等；与旧 scp 脚本意图一致）。若确需连虚拟环境等
-#                    一并镜像，请加：--full-ignored
-#                    上传后会对 api_keys* / withdrawal_addresses、env/.env 做 chmod。
-#
-# 在仓库根目录（PowerShell / cmd 均可）：
+# 若服务器分叉需与远程完全一致（慎用：丢弃服务器上对已跟踪文件的本地修改）：
+#   git fetch origin && git reset --hard origin/main
 
-python server/sync_to_server.py --mode all
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ② gitignore 文件（机密 + 本地配置）：本地 → 服务器
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#
+# 上传内容（自动跳过 .venv、__pycache__、logs/、tools/out/ 等）：
+#   trader/config.py
+#   clients/api_keys.py, api_keys_live.py, api_keys_demo.py
+#   clients/withdrawal_addresses.py
+#   env/（含 .env）
+#   trader_config.ref.txt
+#
+# 方式 A — Python SFTP（需密码，在仓库根目录执行）：
+#   先安装：pip install -r server/requirements.txt
+#   环境变量（Windows 系统变量或当前会话）：
+#     SERVER_PASSWORD     — 必填，SSH 登录密码
+#     SERVER_HOST / SPREAD_HUNTER_SERVER — 可选，默认 45.76.202.248
+#     SERVER_USER / SERVER_REMOTE / SERVER_PORT — 可选，默认 root / /root/spread_hunter_python / 22
+
 python server/sync_to_server.py --mode ignored
 
-# 仅打印将执行的操作：
-# python server/sync_to_server.py --mode all --dry-run
+# 仅打印将执行的操作（不实际连接）：
+# python server/sync_to_server.py --mode ignored --dry-run
 
-# 仍可用 SSH 密钥 + scp 的旧脚本（不上传 SERVER_PASSWORD；需本机已配好密钥）：
+# 方式 B — PowerShell + scp（需 SSH 密钥免密登录，无需密码）：
 # powershell -ExecutionPolicy Bypass -File .\server\sync_secrets_to_server.ps1
-# powershell -ExecutionPolicy Bypass -File .\server\sync_secrets_to_server.ps1 -Server "你的IP"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ①‑b 一键登录服务器（同上环境变量 SERVER_PASSWORD）
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#
-# Windows：优先用 PuTTY 的 plink.exe（可从环境变量带密码）。
-# 若出现 “plink.exe not found… Falling back to ssh.exe”，说明未装 PuTTY / plink：
-#   安装官方安装包：https://www.putty.org/（勾选 plink，默认在 Program Files\PuTTY\plink.exe）。
-#   或把独立 plink.exe 放到 PATH。未装 plink 时会用系统 ssh（一般需密钥，不会读 SERVER_PASSWORD）。
-#
-# .\server\login.bat
-# 或：powershell -ExecutionPolicy Bypass -File .\server\login.ps1
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ② 已跟踪代码：服务器上 git pull（不进 Git 的机密仍用 ① 或 ignored 模式）
+# ③ 单项手动 scp（仅需补某一文件时）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-ssh root@45.76.202.248
-
-cd /root/spread_hunter_python
-git pull origin main
-
-# 若分叉需与远程 main 完全一致（慎用：丢弃服务器上对已跟踪文件的本地修改）：
-# cd /root/spread_hunter_python && git fetch origin && git reset --hard origin/main
-#
-# 首次部署 / 安装依赖 / 创建密钥目录与安全权限（在服务器仓库根目录执行）：
-# chmod +x server/deploy_server.sh
-# ./server/deploy_server.sh
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ③ 单项手动 scp（① 失败或只需补某一文件时；路径按本机修改）
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-# 交易参数（Demo / Live 共用路径；实盘记得 LIVE_TRADING_ON 等）
 scp D:\spread_hunter_python\trader\config.py root@45.76.202.248:/root/spread_hunter_python/trader/
-
-# 与服务器对比参数用的快照（可选）
-scp D:\spread_hunter_python\trader_config.ref.txt root@45.76.202.248:/root/spread_hunter_python/
-
-# 模拟盘 / 测试网 Key（跑 python main.py 非 --live）
-scp D:\spread_hunter_python\clients\api_keys_demo.py root@45.76.202.248:/root/spread_hunter_python/clients/
-
-# 实盘 Key（python main.py --live / rebalance / tools 实盘）
 scp D:\spread_hunter_python\clients\api_keys_live.py root@45.76.202.248:/root/spread_hunter_python/clients/
-
-# 再平衡提币地址
+scp D:\spread_hunter_python\clients\api_keys_demo.py root@45.76.202.248:/root/spread_hunter_python/clients/
 scp D:\spread_hunter_python\clients\withdrawal_addresses.py root@45.76.202.248:/root/spread_hunter_python/clients/
-
-# 旧版单文件密钥（若仍使用）
 scp D:\spread_hunter_python\clients\api_keys.py root@45.76.202.248:/root/spread_hunter_python/clients/
-
-# 代理等环境变量目录（若使用 env/.env）
 scp -r D:\spread_hunter_python\env root@45.76.202.248:/root/spread_hunter_python/
 
-# 上传后在服务器建议（SSH 内执行）：
+# 上传后在服务器建议执行（SSH 内）：
 # chmod 600 /root/spread_hunter_python/clients/api_keys*.py \
 #           /root/spread_hunter_python/clients/withdrawal_addresses.py \
 #           /root/spread_hunter_python/trader/config.py
-# chmod 700 /root/spread_hunter_python/env 2>/dev/null; chmod 600 /root/spread_hunter_python/env/.env 2>/dev/null
+# chmod 700 /root/spread_hunter_python/env 2>/dev/null
+# chmod 600 /root/spread_hunter_python/env/.env 2>/dev/null

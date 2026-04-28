@@ -65,6 +65,33 @@ def _banner(live: bool) -> str:
 """
 
 
+async def _sweep_spot_to_futures():
+    """启动时将各所现货余额自动划入期货账户。"""
+    from trader.exchange_client import build_clients
+    MIN_SWEEP = 0.5
+    clients = build_clients(live=True, proxy="")
+    try:
+        for ex, client in clients.items():
+            try:
+                spot = await client.get_spot_balance()
+                if spot < MIN_SWEEP:
+                    logger.debug(f"[main] {ex} 现货余额 {spot:.2f}U，无需划转")
+                    continue
+                ok = await client.transfer_to_futures(spot)
+                if ok:
+                    logger.info(f"[main] {ex} 现货→期货划转 {spot:.2f}U 成功")
+                else:
+                    logger.warning(f"[main] {ex} 现货→期货划转失败，请手动检查")
+            except Exception as e:
+                logger.warning(f"[main] {ex} 划转异常: {e}")
+    finally:
+        for c in clients.values():
+            try:
+                await c.close()
+            except Exception:
+                pass
+
+
 async def _async_main(live: bool) -> int:
     global _EXIT_CODE
 
@@ -74,6 +101,11 @@ async def _async_main(live: bool) -> int:
 
     # ── 实盘下单验证（only when live, after user confirmed）─────────────────
     if live:
+        # Step 1: 现货→期货自动划转（确保期货账户有余额才能通过下单测试）
+        logger.info("[main] 检查现货余额并自动划转至期货账户…")
+        await _sweep_spot_to_futures()
+
+        # Step 2: 下单测试
         from test_live.preflight import run_order_tests
         logger.info("[main] 运行下单验证测试（auto_confirm）…")
         order_ok = await run_order_tests()
