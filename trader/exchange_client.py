@@ -358,8 +358,12 @@ class BinanceClient(BaseClient):
                 params=p, headers=h, ssl=False, **self._px(),
             ) as r:
                 data = await r.json()
-            return r.status == 200 and "tranId" in data
-        except Exception:
+            ok = r.status == 200 and "tranId" in data
+            if not ok:
+                logger.warning(f"[binance] transfer_to_futures 失败: status={r.status} resp={data}")
+            return ok
+        except Exception as e:
+            logger.warning(f"[binance] transfer_to_futures 异常: {e}")
             return False
 
     async def get_spot_balance(self) -> float:
@@ -690,7 +694,10 @@ class OKXClient(BaseClient):
             data=body, ssl=False, **self._px(),
         ) as r:
             data = await r.json()
-        return data.get("code") == "0"
+        ok = data.get("code") == "0"
+        if not ok:
+            logger.warning(f"[okx] transfer_to_futures 失败: {data}")
+        return ok
 
     async def get_spot_balance(self) -> float:
         # OKX 资金账户（funding account）USDT 余额
@@ -961,9 +968,9 @@ class GateClient(BaseClient):
         return r.status in (200, 201)
 
     async def transfer_to_futures(self, amount: float) -> bool:
-        # Gate.io：现货 USDT → 期货 USDT
+        # Gate.io：现货 USDT → USDT 期货（settle=usdt 必填）
         body_d = {"currency": "USDT", "amount": str(amount),
-                  "from": "spot", "to": "futures"}
+                  "from": "spot", "to": "futures", "settle": "usdt"}
         body = json.dumps(body_d)
         path = "/api/v4/wallet/transfers"
         sess = await self._sess()
@@ -972,7 +979,10 @@ class GateClient(BaseClient):
             data=body, ssl=False, **self._px(),
         ) as r:
             data = await r.json()
-        return r.status in (200, 201)
+        ok = r.status in (200, 201)
+        if not ok:
+            logger.warning(f"[gate] transfer_to_futures 失败: status={r.status} resp={data}")
+        return ok
 
     async def get_spot_balance(self) -> float:
         # Gate 现货账户 USDT 余额
@@ -1399,7 +1409,10 @@ class BitgetClient(BaseClient):
             data=body, ssl=False, **self._px(),
         ) as r:
             data = await r.json()
-        return str(data.get("code", "")) == "00000"
+        ok = str(data.get("code", "")) == "00000"
+        if not ok:
+            logger.warning(f"[bitget] transfer_to_futures 失败: {data}")
+        return ok
 
     async def get_spot_balance(self) -> float:
         # Bitget 现货账户 USDT 余额

@@ -92,6 +92,85 @@ async def _sweep_spot_to_futures():
                 pass
 
 
+def _parse_position(ex: str, pos: dict, mi) -> tuple:
+    """解析各所持仓格式，返回 (exchange_symbol, qty_base, close_side)。"""
+    try:
+        if ex == "binance":
+            sym = pos.get("symbol", "")
+            amt = float(pos.get("positionAmt", 0))
+            return sym, abs(amt), "sell" if amt > 0 else "buy"
+        elif ex == "okx":
+            sym = pos.get("instId", "")
+            contracts = abs(float(pos.get("pos", 0)))
+            pos_side = pos.get("posSide", "long")
+            side = "sell" if pos_side == "long" else "buy"
+            sym_info = mi.get_symbol_info("okx", "TRXUSDT")
+            ct_val = sym_info.native_ct_val if sym_info else 1.0
+            return sym, contracts * ct_val, side
+        elif ex == "gate":
+            sym = pos.get("contract", "")
+            size = float(pos.get("size", 0))
+            sym_info = mi.get_symbol_info("gate", "TRXUSDT")
+            ct_val = sym_info.native_ct_val if sym_info else 1.0
+            return sym, abs(size) * ct_val, "sell" if size > 0 else "buy"
+        elif ex == "bitget":
+            sym = pos.get("symbol", "")
+            total = float(pos.get("total", 0))
+            hold_side = pos.get("holdSide", "long")
+            return sym, total, "sell" if hold_side == "long" else "buy"
+    except Exception:
+        pass
+    return "", 0.0, ""
+
+
+async def _close_all_positions():
+    """启动时关闭各所残留持仓（清理上次失败测试遗留的仓位，释放保证金）。"""
+    from trader.exchange_client import build_clients
+    from trader.market_info import MarketInfo, refresh_market_info
+
+    clients = build_clients(live=True, proxy="")
+    try:
+        mi = MarketInfo()
+        await refresh_market_info(mi, {"TRXUSDT"}, proxy="", live=True)
+
+        any_found = False
+        for ex, client in clients.items():
+            try:
+                positions = await client.get_positions()
+                if not positions:
+                    continue
+                any_found = True
+                logger.info(f"[main] {ex} 发现 {len(positions)} 个残留持仓，正在关闭…")
+                for pos in positions:
+                    sym, qty, side = _parse_position(ex, pos, mi)
+                    if not sym or qty <= 0:
+                        logger.warning(f"[main] {ex} 无法解析持仓: {pos}")
+                        continue
+                    logger.info(f"[main] {ex} 关闭持仓: {sym} qty={qty:.4f} → {side}")
+                    sym_info = mi.get_symbol_info(ex, "TRXUSDT")
+                    res = await client.place_order(
+                        symbol=sym, side=side,
+                        target_qty=qty, ref_price=0,
+                        symbol_info=sym_info,
+                        reduce_only=True,
+                    )
+                    if res.success:
+                        logger.info(f"[main] {ex} 残留持仓关闭成功")
+                    else:
+                        logger.warning(f"[main] {ex} 残留持仓关闭失败: {res.error}")
+            except Exception as e:
+                logger.warning(f"[main] {ex} 查询/关闭持仓异常: {e}")
+
+        if not any_found:
+            logger.info("[main] 各所无残留持仓")
+    finally:
+        for c in clients.values():
+            try:
+                await c.close()
+            except Exception:
+                pass
+
+
 async def _async_main(live: bool) -> int:
     global _EXIT_CODE
 
@@ -105,7 +184,11 @@ async def _async_main(live: bool) -> int:
         logger.info("[main] 检查现货余额并自动划转至期货账户…")
         await _sweep_spot_to_futures()
 
-        # Step 2: 下单测试
+        # Step 2: 关闭残留持仓（上次失败测试可能留下开仓，会导致保证金不足）
+        logger.info("[main] 检查并关闭各所残留持仓…")
+        await _close_all_positions()
+
+        # Step 3: 下单测试
         from test_live.preflight import run_order_tests
         logger.info("[main] 运行下单验证测试（auto_confirm）…")
         order_ok = await run_order_tests()
