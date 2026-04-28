@@ -128,7 +128,34 @@ async def scan_binance(keys):
         except Exception as e:
             results["资金账户(funding)"] = f"错误: {e}"
 
-        # 5. 持仓信息（合约）
+        # 5. Simple Earn 活期理财（新接口）
+        try:
+            p, h = _sign_binance(keys, {"asset": "USDT", "size": "100"})
+            async with sess.get(f"{spot}/sapi/v1/simple-earn/flexible/position/list", params=p, headers=h, **px) as r:
+                d = await r.json()
+            if d.get("code") == 200 or "rows" in (d.get("data") or {}):
+                rows = (d.get("data") or {}).get("rows") or []
+                total = sum(float(row.get("totalAmount", 0)) for row in rows if row.get("asset") == "USDT")
+                results["理财(Simple Earn)"] = f"totalAmount={total}" if total > 0 else "0（空）"
+            else:
+                results["理财(Simple Earn)"] = str(d)
+        except Exception as e:
+            results["理财(Simple Earn)"] = f"错误: {e}"
+
+        # 6. 旧版活期理财（lending）
+        try:
+            p, h = _sign_binance(keys, {"asset": "USDT"})
+            async with sess.get(f"{spot}/sapi/v1/lending/daily/token/position", params=p, headers=h, **px) as r:
+                d = await r.json()
+            if isinstance(d, list):
+                total = sum(float(item.get("freeAmount", 0)) + float(item.get("lockedAmount", 0)) for item in d if item.get("asset") == "USDT")
+                results["理财(lending/旧版)"] = f"amount={total}" if total > 0 else "0（空）"
+            else:
+                results["理财(lending/旧版)"] = str(d)
+        except Exception as e:
+            results["理财(lending/旧版)"] = f"错误: {e}"
+
+        # 7. 持仓信息（合约）
         try:
             p, h = _sign_binance(keys, {})
             async with sess.get(f"{fapi}/fapi/v2/positionRisk", params=p, headers=h, **px) as r:
@@ -178,7 +205,21 @@ async def scan_okx(keys):
         except Exception as e:
             results["资金账户(funding)"] = f"错误: {e}"
 
-        # 3. 持仓
+        # 3. 活期理财（Savings）
+        try:
+            path = "/api/v5/finance/savings/balance?ccy=USDT"
+            async with sess.get(f"{base}{path}", headers=_sign_okx(keys, "GET", path), **px) as r:
+                d = await r.json()
+            if d.get("code") == "0":
+                items = d.get("data") or []
+                total = sum(float(i.get("amt", 0)) for i in items if i.get("ccy") == "USDT")
+                results["理财(savings)"] = f"amt={total}" if total > 0 else "0（空）"
+            else:
+                results["理财(savings)"] = str(d)
+        except Exception as e:
+            results["理财(savings)"] = f"错误: {e}"
+
+        # 4. 持仓
         try:
             path = "/api/v5/account/positions?instType=SWAP"
             async with sess.get(f"{base}{path}", headers=_sign_okx(keys, "GET", path), **px) as r:
@@ -241,7 +282,21 @@ async def scan_bitget(keys):
         except Exception as e:
             results["现货"] = f"错误: {e}"
 
-        # 2. 期货账户
+        # 2. 理财账户（Earn）
+        try:
+            path = "/api/v2/earn/savings/assets?coin=USDT"
+            async with sess.get(f"{base}{path}", headers=_sign_bitget(keys, "GET", path), **px) as r:
+                d = await r.json()
+            if str(d.get("code", "")) == "00000":
+                items = d.get("data") or []
+                total = sum(float(i.get("holdAmount", 0)) for i in items if i.get("coin") == "USDT")
+                results["理财(earn)"] = f"holdAmount={total}" if total > 0 else "0（空）"
+            else:
+                results["理财(earn)"] = str(d)
+        except Exception as e:
+            results["理财(earn)"] = f"错误: {e}"
+
+        # 3. 期货账户
         try:
             path = "/api/v2/mix/account/accounts?productType=USDT-FUTURES"
             ts  = str(int(time.time() * 1000))
