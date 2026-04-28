@@ -112,6 +112,7 @@ python -m test_live.preflight
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 python -m tools.check_account
+python -m tools.find_balance                 # 全所各钱包类型 + 理财 USDT 汇总（需 api_keys_live）
 python -m tools.sweep_to_futures --dry-run   # 现货 USDT → 期货（干跑）
 python -m tools.sweep_to_futures             # 实盘划转（需 api_keys_live）
 # 导出 trader/config 参数；本机 --save 生成 ref，服务器 --compare ref 逐项对比
