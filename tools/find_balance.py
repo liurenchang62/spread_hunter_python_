@@ -206,7 +206,39 @@ async def scan_binance(keys):
         except Exception as e:
             results["期权账户(eapi)"] = f"错误: {e}"
 
-        # 9. 合约持仓
+        # 9. 子账户列表 + 余额
+        try:
+            p, h = _sign_binance(keys, {"limit": "200"})
+            async with sess.get(f"{spot}/sapi/v1/sub-account/list", params=p, headers=h, **px) as r:
+                d = await r.json(content_type=None)
+            sub_list = (d.get("subAccounts") or []) if isinstance(d, dict) else []
+            if not sub_list:
+                results["子账户"] = "无子账户 / 非主账户API"
+            else:
+                sub_usdt_total = 0.0
+                sub_details = []
+                for sub in sub_list:
+                    email = sub.get("email", "")
+                    try:
+                        p2, h2 = _sign_binance(keys, {"email": email})
+                        async with sess.get(f"{spot}/sapi/v4/sub-account/assets", params=p2, headers=h2, **px) as r2:
+                            d2 = await r2.json(content_type=None)
+                        for b in (d2.get("balances") or []):
+                            if b.get("asset") == "USDT":
+                                val = float(b.get("free", 0)) + float(b.get("locked", 0)) + float(b.get("freeze", 0))
+                                if val > 0.001:
+                                    sub_usdt_total += val
+                                    sub_details.append(f"{email}={val}")
+                    except Exception:
+                        pass
+                if sub_usdt_total > 0.001:
+                    results["子账户USDT"] = f"合计={sub_usdt_total}  详情: {'; '.join(sub_details)}"
+                else:
+                    results["子账户USDT"] = f"0（共{len(sub_list)}个子账户）"
+        except Exception as e:
+            results["子账户"] = f"错误: {e}"
+
+        # 10. 合约持仓
         try:
             p, h = _sign_binance(keys, {})
             async with sess.get(f"{fapi}/fapi/v2/positionRisk", params=p, headers=h, **px) as r:
