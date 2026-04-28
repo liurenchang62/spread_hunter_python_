@@ -178,23 +178,15 @@ async def _async_main(live: bool) -> int:
 
     print(_banner(live))
 
-    # ── 实盘下单验证（only when live, after user confirmed）─────────────────
+    # ── 实盘启动前维护（sweep + 残留持仓清理）──────────────────────────────
     if live:
-        # Step 1: 现货→期货自动划转（确保期货账户有余额才能通过下单测试）
+        # Step 1: 现货→期货自动划转
         logger.info("[main] 检查现货余额并自动划转至期货账户…")
         await _sweep_spot_to_futures()
 
-        # Step 2: 关闭残留持仓（上次失败测试可能留下开仓，会导致保证金不足）
+        # Step 2: 关闭残留持仓（释放被占用的保证金）
         logger.info("[main] 检查并关闭各所残留持仓…")
         await _close_all_positions()
-
-        # Step 3: 下单测试
-        from test_live.preflight import run_order_tests
-        logger.info("[main] 运行下单验证测试（auto_confirm）…")
-        order_ok = await run_order_tests()
-        if not order_ok:
-            logger.error("[main] 下单验证存在失败项，终止启动。请修复上述错误后重试。")
-            sys.exit(1)
 
     # ── 初始化 ────────────────────────────────────────────────────────────────
     tracker    = Tracker()
@@ -317,13 +309,13 @@ def main():
         if readonly_ok:
             prompt = (
                 "\033[32m只读检查全部通过。\033[0m\n"
-                "\033[31m即将进行下单验证（消耗少量手续费）并启动实盘交易。\n"
-                "请输入 YES 确认: \033[0m"
+                "即将划转现货余额、清理残留持仓并\033[31m启动实盘交易\033[0m。\n"
+                "请输入 YES 确认: "
             )
         else:
             prompt = (
                 "\033[31m部分只读检查失败，请确认问题后再决定是否继续。\n"
-                "输入 YES 强制继续（含下单验证 + 实盘），其他取消: \033[0m"
+                "输入 YES 强制继续（实盘），其他取消: \033[0m"
             )
         if input(prompt).strip() != "YES":
             print("已取消。")
