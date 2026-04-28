@@ -62,10 +62,12 @@ def _sign_bitget(keys, method, path):
 
 
 async def scan_binance(keys):
-    spot = "https://api.binance.com"
-    fapi = "https://fapi.binance.com"
-    px   = {}
-    conn = aiohttp.TCPConnector(ssl=False)
+    spot  = "https://api.binance.com"
+    fapi  = "https://fapi.binance.com"
+    eapi  = "https://eapi.binance.com"
+    papi  = "https://papi.binance.com"
+    px    = {}
+    conn  = aiohttp.TCPConnector(ssl=False)
     results = {}
 
     async with aiohttp.ClientSession(connector=conn) as sess:
@@ -73,50 +75,18 @@ async def scan_binance(keys):
         try:
             p, h = _sign_binance(keys, {})
             async with sess.get(f"{spot}/api/v3/account", params=p, headers=h, **px) as r:
-                d = await r.json()
+                d = await r.json(content_type=None)
             for b in (d.get("balances") or []):
                 if b["asset"] == "USDT":
-                    results["现货(api/v3)"] = f"free={b['free']}  locked={b['locked']}"
+                    results["现货(spot)"] = f"free={b['free']}  locked={b['locked']}"
         except Exception as e:
-            results["现货(api/v3)"] = f"错误: {e}"
+            results["现货(spot)"] = f"错误: {e}"
 
-        # 2. capital/config（原get_spot_balance用的接口）
-        try:
-            p, h = _sign_binance(keys, {})
-            async with sess.get(f"{spot}/sapi/v1/capital/config/getall", params=p, headers=h, **px) as r:
-                d = await r.json()
-            if isinstance(d, list):
-                for item in d:
-                    if item.get("coin") == "USDT":
-                        results["现货(capital/config)"] = f"free={item.get('free')}  locked={item.get('locked')}"
-            else:
-                results["现货(capital/config)"] = str(d)
-        except Exception as e:
-            results["现货(capital/config)"] = f"错误: {e}"
-
-        # 3. USDT-M 合约钱包
-        try:
-            p, h = _sign_binance(keys, {})
-            async with sess.get(f"{fapi}/fapi/v2/balance", params=p, headers=h, **px) as r:
-                d = await r.json()
-            if isinstance(d, list):
-                for item in d:
-                    if item.get("asset") == "USDT":
-                        results["期货(fapi/v2)"] = (
-                            f"balance={item.get('balance')}  "
-                            f"available={item.get('availableBalance')}  "
-                            f"crossUnPnl={item.get('crossUnPnl')}"
-                        )
-            else:
-                results["期货(fapi/v2)"] = str(d)
-        except Exception as e:
-            results["期货(fapi/v2)"] = f"错误: {e}"
-
-        # 4. 资金账户（Funding wallet）
+        # 2. 资金账户（Funding wallet，充值到账处）
         try:
             p, h = _sign_binance(keys, {"asset": "USDT"})
             async with sess.post(f"{spot}/sapi/v1/asset/get-funding-asset", params=p, headers=h, **px) as r:
-                d = await r.json()
+                d = await r.json(content_type=None)
             if isinstance(d, list) and d:
                 for item in d:
                     if item.get("asset") == "USDT":
@@ -128,30 +98,119 @@ async def scan_binance(keys):
         except Exception as e:
             results["资金账户(funding)"] = f"错误: {e}"
 
-        # 5. Simple Earn 活期理财
+        # 3. USDT-M 合约钱包
+        try:
+            p, h = _sign_binance(keys, {})
+            async with sess.get(f"{fapi}/fapi/v2/balance", params=p, headers=h, **px) as r:
+                d = await r.json(content_type=None)
+            if isinstance(d, list):
+                for item in d:
+                    if item.get("asset") == "USDT":
+                        results["期货(fapi)"] = (
+                            f"balance={item.get('balance')}  "
+                            f"available={item.get('availableBalance')}  "
+                            f"crossUnPnl={item.get('crossUnPnl')}"
+                        )
+            else:
+                results["期货(fapi)"] = str(d)
+        except Exception as e:
+            results["期货(fapi)"] = f"错误: {e}"
+
+        # 4. 全仓杠杆
+        try:
+            p, h = _sign_binance(keys, {})
+            async with sess.get(f"{spot}/sapi/v1/margin/account", params=p, headers=h, **px) as r:
+                d = await r.json(content_type=None)
+            if isinstance(d, dict) and "userAssets" in d:
+                for item in d["userAssets"]:
+                    if item.get("asset") == "USDT":
+                        free = float(item.get("free", 0))
+                        locked = float(item.get("locked", 0))
+                        net = float(item.get("netAsset", 0))
+                        if free + locked + abs(net) > 0.001:
+                            results["全仓杠杆(margin)"] = f"free={item.get('free')}  locked={item.get('locked')}  net={item.get('netAsset')}"
+                        else:
+                            results["全仓杠杆(margin)"] = "0（空）"
+            else:
+                results["全仓杠杆(margin)"] = str(d)
+        except Exception as e:
+            results["全仓杠杆(margin)"] = f"错误: {e}"
+
+        # 5. Simple Earn 活期（Flexible）
         try:
             p, h = _sign_binance(keys, {"asset": "USDT", "size": "100"})
             async with sess.get(
-                f"{spot}/sapi/v1/simple-earn/flexible/position/list",
+                f"{spot}/sapi/v1/simple-earn/flexible/position",
                 params=p, headers=h, **px,
             ) as r:
                 d = await r.json(content_type=None)
             if isinstance(d, dict) and "data" in d:
                 rows = (d["data"].get("rows") or [])
                 total = sum(float(row.get("totalAmount", 0)) for row in rows if row.get("asset") == "USDT")
-                results["理财(Simple Earn)"] = f"totalAmount={total}" if total > 0 else "0（空）"
-            elif isinstance(d, dict) and d.get("status") == 404:
-                results["理财(Simple Earn)"] = "0（无持仓）"
+                results["Simple Earn 活期"] = f"totalAmount={total}" if total > 0 else "0（空）"
+            elif isinstance(d, dict) and d.get("code") not in (None, "200"):
+                results["Simple Earn 活期"] = f"code={d.get('code')} msg={d.get('msg')}"
             else:
-                results["理财(Simple Earn)"] = str(d)
+                results["Simple Earn 活期"] = "0（空）"
         except Exception as e:
-            results["理财(Simple Earn)"] = f"错误: {e}"
+            results["Simple Earn 活期"] = f"错误: {e}"
 
-        # 6. 持仓信息（合约）
+        # 6. Simple Earn 定期（Locked）
+        try:
+            p, h = _sign_binance(keys, {"asset": "USDT", "size": "100"})
+            async with sess.get(
+                f"{spot}/sapi/v1/simple-earn/locked/position",
+                params=p, headers=h, **px,
+            ) as r:
+                d = await r.json(content_type=None)
+            if isinstance(d, dict) and "data" in d:
+                rows = (d["data"].get("rows") or [])
+                total = sum(float(row.get("amount", 0)) for row in rows if row.get("asset") == "USDT")
+                results["Simple Earn 定期"] = f"amount={total}" if total > 0 else "0（空）"
+            else:
+                results["Simple Earn 定期"] = "0（空）"
+        except Exception as e:
+            results["Simple Earn 定期"] = f"错误: {e}"
+
+        # 7. Portfolio Margin（papi）
+        try:
+            p, h = _sign_binance(keys, {"asset": "USDT"})
+            async with sess.get(f"{papi}/papi/v1/balance", params=p, headers=h, **px) as r:
+                d = await r.json(content_type=None)
+            if isinstance(d, list):
+                for item in d:
+                    if item.get("asset") == "USDT":
+                        total = float(item.get("totalWalletBalance", 0))
+                        results["Portfolio Margin"] = f"totalWalletBalance={total}" if total > 0.001 else "0（空）"
+            elif isinstance(d, dict) and d.get("code"):
+                results["Portfolio Margin"] = f"code={d.get('code')}（未开通）"
+            else:
+                results["Portfolio Margin"] = "0（空）"
+        except Exception as e:
+            results["Portfolio Margin"] = f"错误: {e}"
+
+        # 8. 期权账户（eapi）
+        try:
+            p, h = _sign_binance(keys, {})
+            async with sess.get(f"{eapi}/eapi/v1/account", params=p, headers=h, **px) as r:
+                d = await r.json(content_type=None)
+            if isinstance(d, dict) and "asset" in d:
+                for item in (d.get("asset") or []):
+                    if item.get("asset") == "USDT":
+                        bal = float(item.get("marginBalance", 0))
+                        results["期权账户(eapi)"] = f"marginBalance={bal}" if bal > 0.001 else "0（空）"
+            elif isinstance(d, dict) and d.get("code"):
+                results["期权账户(eapi)"] = f"code={d.get('code')}（未开通）"
+            else:
+                results["期权账户(eapi)"] = "0（空）"
+        except Exception as e:
+            results["期权账户(eapi)"] = f"错误: {e}"
+
+        # 9. 合约持仓
         try:
             p, h = _sign_binance(keys, {})
             async with sess.get(f"{fapi}/fapi/v2/positionRisk", params=p, headers=h, **px) as r:
-                d = await r.json()
+                d = await r.json(content_type=None)
             open_pos = [x for x in (d if isinstance(d, list) else []) if float(x.get("positionAmt", 0)) != 0]
             results["合约持仓"] = f"{len(open_pos)} 个持仓" if open_pos else "无持仓"
         except Exception as e:
@@ -274,18 +333,21 @@ async def scan_bitget(keys):
         except Exception as e:
             results["现货"] = f"错误: {e}"
 
-        # 2. 理财账户（Earn / 活期）
+        # 2. 理财账户（Earn / 活期），data 下是 resultList
         try:
             path = "/api/v2/earn/savings/assets?coin=USDT"
             async with sess.get(f"{base}{path}", headers=_sign_bitget(keys, "GET", path), **px) as r:
                 d = await r.json(content_type=None)
             if isinstance(d, dict) and str(d.get("code", "")) == "00000":
-                items = d.get("data") or []
-                if isinstance(items, list):
-                    total = sum(float(i.get("holdAmount", 0)) for i in items if isinstance(i, dict) and i.get("coin") == "USDT")
-                    results["理财(earn)"] = f"holdAmount={total}" if total > 0 else "0（空）"
+                data = d.get("data") or {}
+                if isinstance(data, list):
+                    items = data
+                elif isinstance(data, dict):
+                    items = data.get("resultList") or []
                 else:
-                    results["理财(earn)"] = str(items)
+                    items = []
+                total = sum(float(i.get("holdAmount", 0)) for i in items if isinstance(i, dict))
+                results["理财(earn)"] = f"holdAmount={total}" if total > 0 else "0（空）"
             else:
                 results["理财(earn)"] = str(d)
         except Exception as e:
