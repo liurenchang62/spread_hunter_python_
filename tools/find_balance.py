@@ -137,6 +137,7 @@ async def scan_binance(keys):
             results["全仓杠杆(margin)"] = f"错误: {e}"
 
         # 5. Simple Earn 活期（Flexible）
+        # 响应格式: {"rows": [...], "total": N}  ← 无 data 包裹层
         try:
             p, h = _sign_binance(keys, {"asset": "USDT", "size": "100"})
             async with sess.get(
@@ -144,18 +145,19 @@ async def scan_binance(keys):
                 params=p, headers=h, **px,
             ) as r:
                 d = await r.json(content_type=None)
-            if isinstance(d, dict) and "data" in d:
-                rows = (d["data"].get("rows") or [])
+            if isinstance(d, dict) and "rows" in d:
+                rows = d.get("rows") or []
                 total = sum(float(row.get("totalAmount", 0)) for row in rows if row.get("asset") == "USDT")
                 results["Simple Earn 活期"] = f"totalAmount={total}" if total > 0 else "0（空）"
-            elif isinstance(d, dict) and d.get("code") not in (None, "200"):
+            elif isinstance(d, dict) and d.get("code"):
                 results["Simple Earn 活期"] = f"code={d.get('code')} msg={d.get('msg')}"
             else:
-                results["Simple Earn 活期"] = "0（空）"
+                results["Simple Earn 活期"] = f"0（空）raw={d}"
         except Exception as e:
             results["Simple Earn 活期"] = f"错误: {e}"
 
         # 6. Simple Earn 定期（Locked）
+        # 响应格式: {"rows": [...], "total": N}  ← 同上
         try:
             p, h = _sign_binance(keys, {"asset": "USDT", "size": "100"})
             async with sess.get(
@@ -163,12 +165,14 @@ async def scan_binance(keys):
                 params=p, headers=h, **px,
             ) as r:
                 d = await r.json(content_type=None)
-            if isinstance(d, dict) and "data" in d:
-                rows = (d["data"].get("rows") or [])
+            if isinstance(d, dict) and "rows" in d:
+                rows = d.get("rows") or []
                 total = sum(float(row.get("amount", 0)) for row in rows if row.get("asset") == "USDT")
                 results["Simple Earn 定期"] = f"amount={total}" if total > 0 else "0（空）"
+            elif isinstance(d, dict) and d.get("code"):
+                results["Simple Earn 定期"] = f"code={d.get('code')} msg={d.get('msg')}"
             else:
-                results["Simple Earn 定期"] = "0（空）"
+                results["Simple Earn 定期"] = f"0（空）raw={d}"
         except Exception as e:
             results["Simple Earn 定期"] = f"错误: {e}"
 
