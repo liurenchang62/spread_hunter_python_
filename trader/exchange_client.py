@@ -910,7 +910,7 @@ class GateClient(BaseClient):
 
     async def place_order(
         self, symbol: str, side: str, target_qty: float,
-        ref_price: float, symbol_info=None,
+        ref_price: float, symbol_info=None, reduce_only: bool = False,
     ) -> OrderResult:
         # Gate 线性永续：size 单位为合约张数，1张 = ct_val(quanto_multiplier) base coins
         ct_val = symbol_info.native_ct_val if symbol_info and symbol_info.native_ct_val > 0 else (
@@ -923,6 +923,8 @@ class GateClient(BaseClient):
             sz = -sz   # Gate 用负数表示做空
 
         body_d = {"contract": symbol, "size": sz, "price": "0", "tif": "ioc"}
+        if reduce_only:
+            body_d["reduce_only"] = True
         body   = json.dumps(body_d)
         path   = "/api/v4/futures/usdt/orders"
         try:

@@ -66,11 +66,25 @@ def _banner(live: bool) -> str:
 
 
 async def _sweep_spot_to_futures():
-    """启动时将各所现货余额自动划入期货账户。"""
+    """启动时将各所理财/现货余额自动划入期货账户。"""
     from trader.exchange_client import build_clients
     MIN_SWEEP = 0.5
     clients = build_clients(live=True, proxy="")
     try:
+        # Step 1: 赎回理财 → 现货/资金账户
+        redeem_tasks = {ex: client.redeem_earn() for ex, client in clients.items()}
+        redeemed = await asyncio.gather(*redeem_tasks.values(), return_exceptions=True)
+        any_redeemed = False
+        for ex, amt in zip(redeem_tasks.keys(), redeemed):
+            if isinstance(amt, float) and amt > 0.01:
+                logger.info(f"[main] {ex} 理财赎回 {amt:.2f}U")
+                any_redeemed = True
+            elif isinstance(amt, Exception):
+                logger.warning(f"[main] {ex} 理财赎回异常: {amt}")
+        if any_redeemed:
+            await asyncio.sleep(3)  # 等待赎回到账
+
+        # Step 2: 现货→期货划转
         for ex, client in clients.items():
             try:
                 spot = await client.get_spot_balance()

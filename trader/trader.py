@@ -37,7 +37,6 @@ from tracker.models import MarketEvent, Tick
 import trader.config as _trader_cfg
 from trader.config import (
     CONVERGENCE_PCT,
-    LIVE_TRADING_ON,
     MAX_HOLD_SECONDS,
     MIN_ANOMALY_TO_OPEN_PCT,
     PAIR_CAPITAL_PCT,
@@ -78,7 +77,7 @@ class Trader:
 
         self._proxy  = proxy or ""
         self.pm      = PositionManager(self._active)
-        self.clients = build_clients(live=LIVE_TRADING_ON, proxy=self._proxy)
+        self.clients = build_clients(live=_trader_cfg.LIVE_TRADING_ON, proxy=self._proxy)
         self.mi      = MarketInfo()
         self.risk    = RiskManager(self.clients)
         self.ob      = OrderBookCache(proxy=self._proxy)
@@ -102,7 +101,7 @@ class Trader:
         # 会话开仓上限（SESSION_MAX_ENTRIES）
         self._session_cap_reached = False   # 累计开仓已达上限，不再接受新开仓
 
-        mode = "主网实盘" if LIVE_TRADING_ON else "测试网/Demo"
+        mode = "主网实盘" if _trader_cfg.LIVE_TRADING_ON else "测试网/Demo"
         logger.info(f"[trader] 初始化 | 模式={mode} | 客户端={list(self.clients.keys())}")
 
     # ─── 主入口 ───────────────────────────────────────────────────────────────
@@ -121,7 +120,7 @@ class Trader:
         symbols = set(self.tracker.symbol_sel.symbols) if has_symbol_sel else set()
         logger.info(f"[trader] 初始标的数量: {len(symbols)}")
         if symbols:
-            await refresh_market_info(self.mi, symbols, proxy=self._proxy, live=LIVE_TRADING_ON)
+            await refresh_market_info(self.mi, symbols, proxy=self._proxy, live=_trader_cfg.LIVE_TRADING_ON)
             logger.info(f"[trader] 市场信息已刷新，symbol_info 数量: {len(self.mi.symbol_info)}")
             # 检查几个关键标的的 step size
             for sym in ['PIEVERSEUSDT', 'RAVEUSDT']:
@@ -189,7 +188,7 @@ class Trader:
         big, small, sym = sig.big_exchange, sig.small_exchange, sig.symbol
 
         # 交易所过滤
-        if not LIVE_TRADING_ON:
+        if not _trader_cfg.LIVE_TRADING_ON:
             if big not in TESTNET_EXCHANGES or small not in TESTNET_EXCHANGES:
                 logger.info(f"[trader] 拒绝 {sym} {big}/{small} | 交易所不在测试网支持列表")
                 return
@@ -574,7 +573,7 @@ class Trader:
                 symbols = set(self.tracker.symbol_sel.symbols)
             if symbols and len(self.mi.symbol_info) == 0:
                 logger.info(f"[trader] 首次获取到 {len(symbols)} 个标的，刷新市场信息…")
-                await refresh_market_info(self.mi, symbols, proxy=self._proxy, live=LIVE_TRADING_ON)
+                await refresh_market_info(self.mi, symbols, proxy=self._proxy, live=_trader_cfg.LIVE_TRADING_ON)
                 logger.info(f"[trader] 市场信息已刷新，symbol_info 数量: {len(self.mi.symbol_info)}")
                 break
             if symbols:
@@ -587,7 +586,7 @@ class Trader:
             if hasattr(self.tracker, "symbol_sel"):
                 symbols = set(self.tracker.symbol_sel.symbols)
             if symbols:
-                await refresh_market_info(self.mi, symbols, proxy=self._proxy, live=LIVE_TRADING_ON)
+                await refresh_market_info(self.mi, symbols, proxy=self._proxy, live=_trader_cfg.LIVE_TRADING_ON)
 
     # ─── 辅助 ────────────────────────────────────────────────────────────────
 
