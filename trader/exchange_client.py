@@ -149,6 +149,10 @@ class BaseClient:
         """
         raise NotImplementedError
 
+    async def get_earn_balance(self) -> float:
+        """查询活期理财 USDT 余额（只读，不赎回）。"""
+        return 0.0
+
     async def redeem_earn(self) -> float:
         """从活期理财账户赎回 USDT 到现货/资金账户。返回赎回金额，0 表示无持仓或不支持。"""
         return 0.0
@@ -388,6 +392,24 @@ class BinanceClient(BaseClient):
                         for net in (item.get("networkList") or []):
                             pass  # not needed here
                         return float(item.get("free", 0))
+        except Exception:
+            pass
+        return 0.0
+
+    async def get_earn_balance(self) -> float:
+        # Binance Simple Earn 活期余额（只读）
+        spot_base = "https://api.binance.com"
+        try:
+            sess = await self._sess()
+            p, h = self._sign({"asset": "USDT", "size": "100"})
+            async with sess.get(
+                f"{spot_base}/sapi/v1/simple-earn/flexible/position",
+                params=p, headers=h, ssl=False,
+                timeout=aiohttp.ClientTimeout(total=5), **self._px(),
+            ) as r:
+                data = await r.json(content_type=None)
+            if isinstance(data, dict) and "rows" in data:
+                return sum(float(row.get("totalAmount", 0)) for row in (data.get("rows") or []) if row.get("asset") == "USDT")
         except Exception:
             pass
         return 0.0
@@ -752,6 +774,22 @@ class OKXClient(BaseClient):
                         return float(item.get("availBal", 0))
         except Exception as e:
             logger.debug(f"[okx] spot balance 查询失败: {e}")
+        return 0.0
+
+    async def get_earn_balance(self) -> float:
+        # OKX 活期理财余额（只读）
+        try:
+            sess = await self._sess()
+            path = "/api/v5/finance/savings/balance?ccy=USDT"
+            async with sess.get(
+                f"{self.base}{path}", headers=self._sign("GET", path),
+                ssl=False, timeout=aiohttp.ClientTimeout(total=5), **self._px(),
+            ) as r:
+                data = await r.json()
+            if data.get("code") == "0":
+                return sum(float(i.get("amt", 0)) for i in (data.get("data") or []) if i.get("ccy") == "USDT")
+        except Exception:
+            pass
         return 0.0
 
     async def redeem_earn(self) -> float:
@@ -1506,6 +1544,25 @@ class BitgetClient(BaseClient):
             logger.debug(f"[bitget] spot balance 查询失败: {e}")
         return 0.0
 
+    async def get_earn_balance(self) -> float:
+        # Bitget 活期理财余额（只读）
+        try:
+            sess = await self._sess()
+            path = "/api/v2/earn/savings/assets?coin=USDT"
+            async with sess.get(
+                f"{self.base}{path}",
+                headers=self._sign("GET", path, use_pap=False),
+                ssl=False, timeout=aiohttp.ClientTimeout(total=5), **self._px(),
+            ) as r:
+                data = await r.json()
+            if str(data.get("code", "")) == "00000":
+                raw = data.get("data") or {}
+                items = raw.get("resultList") or [] if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
+                return sum(float(i.get("holdAmount", 0)) for i in items)
+        except Exception:
+            pass
+        return 0.0
+
     async def redeem_earn(self) -> float:
         # Bitget 活期理财赎回 → 现货账户
         total = 0.0
@@ -1526,7 +1583,8 @@ class BitgetClient(BaseClient):
                     if amt < 0.01:
                         continue
                     order_id = item.get("orderId", "")
-                    body_d = {"orderId": order_id}
+                    period_type = item.get("periodType", "flexible")
+                    body_d = {"orderId": order_id, "periodType": period_type}
                     body = json.dumps(body_d)
                     rpath = "/api/v2/earn/savings/redeem"
                     async with sess.post(

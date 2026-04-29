@@ -70,18 +70,19 @@ async def close_all(clients: dict):
 class ExchangeState:
     exchange:       str
     available:      float = 0.0   # 期货可用余额（get_balance）
-    spot:           float = 0.0   # 现货可用余额（get_spot_balance）
+    spot:           float = 0.0   # 现货/资金账户余额（get_spot_balance）
+    earn:           float = 0.0   # 活期理财余额（get_earn_balance）
     total_futures:  float = 0.0   # 期货总权益（get_total_balance：含保证金+未实现盈亏）
 
     @property
     def cash(self) -> float:
-        """可用现金 = 期货可用余额（不含现货/资金账户，仅统计可直接用于合约交易的资金）"""
-        return self.available
+        """可用现金 = 期货可用 + 现货/资金账户 + 活期理财（均可快速调用于交易）"""
+        return self.available + self.spot + self.earn
 
     @property
     def equity(self) -> float:
-        """总权益 = 期货总权益（含已用保证金和未实现盈亏，不含现货账户）"""
-        return self.total_futures
+        """总权益 = 期货总权益 + 现货 + 理财（真实总资产）"""
+        return self.total_futures + self.spot + self.earn
 
 
 async def _fetch_one(ex: str, client) -> ExchangeState:
@@ -89,6 +90,7 @@ async def _fetch_one(ex: str, client) -> ExchangeState:
     for attr, method in [
         ("available",     client.get_balance),
         ("spot",          client.get_spot_balance),
+        ("earn",          client.get_earn_balance),
         ("total_futures", client.get_total_balance),
     ]:
         try:
