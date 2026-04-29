@@ -149,6 +149,10 @@ class BaseClient:
         """
         raise NotImplementedError
 
+    async def redeem_earn(self) -> float:
+        """从活期理财账户赎回 USDT 到现货/资金账户。返回赎回金额，0 表示无持仓或不支持。"""
+        return 0.0
+
     async def set_leverage(self, symbol: str, leverage: int) -> bool:
         """设置合约杠杆（尽力而为，失败只记日志不抛出）。"""
         raise NotImplementedError
@@ -387,6 +391,39 @@ class BinanceClient(BaseClient):
         except Exception:
             pass
         return 0.0
+
+    async def redeem_earn(self) -> float:
+        # Binance Simple Earn 活期赎回 → 现货账户
+        spot_base = "https://api.binance.com"
+        total = 0.0
+        try:
+            sess = await self._sess()
+            p, h = self._sign({"asset": "USDT", "size": "100"})
+            async with sess.get(
+                f"{spot_base}/sapi/v1/simple-earn/flexible/position",
+                params=p, headers=h, ssl=False,
+                timeout=aiohttp.ClientTimeout(total=5), **self._px(),
+            ) as r:
+                data = await r.json(content_type=None)
+            for row in (data.get("rows") or [] if isinstance(data, dict) else []):
+                if row.get("asset") != "USDT":
+                    continue
+                amt = float(row.get("totalAmount", 0))
+                if amt < 0.01:
+                    continue
+                p2, h2 = self._sign({"productId": row["productId"], "redeemAll": "true"})
+                async with sess.post(
+                    f"{spot_base}/sapi/v1/simple-earn/flexible/redeem",
+                    params=p2, headers=h2, ssl=False, **self._px(),
+                ) as r2:
+                    result = await r2.json(content_type=None)
+                if result.get("success"):
+                    total += amt
+                else:
+                    logger.warning(f"[binance] redeem_earn 失败: {result}")
+        except Exception as e:
+            logger.warning(f"[binance] redeem_earn 异常: {e}")
+        return total
 
     async def get_total_balance(self) -> float:
         # Binance /fapi/v2/balance 同时返回 balance（总权益）和 availableBalance
@@ -716,6 +753,40 @@ class OKXClient(BaseClient):
         except Exception as e:
             logger.debug(f"[okx] spot balance 查询失败: {e}")
         return 0.0
+
+    async def redeem_earn(self) -> float:
+        # OKX 活期理财赎回 → 资金账户
+        total = 0.0
+        try:
+            sess = await self._sess()
+            path = "/api/v5/finance/savings/balance?ccy=USDT"
+            async with sess.get(
+                f"{self.base}{path}", headers=self._sign("GET", path),
+                ssl=False, timeout=aiohttp.ClientTimeout(total=5), **self._px(),
+            ) as r:
+                data = await r.json()
+            for item in (data.get("data") or [] if data.get("code") == "0" else []):
+                if item.get("ccy") != "USDT":
+                    continue
+                amt_str = item.get("amt", "0")
+                amt = float(amt_str)
+                if amt < 0.01:
+                    continue
+                body_d = {"ccy": "USDT", "amt": amt_str, "side": "redempt"}
+                body = json.dumps(body_d)
+                rpath = "/api/v5/finance/savings/purchase-redempt"
+                async with sess.post(
+                    f"{self.base}{rpath}", headers=self._sign("POST", rpath, body),
+                    data=body, ssl=False, **self._px(),
+                ) as r2:
+                    result = await r2.json()
+                if result.get("code") == "0":
+                    total += amt
+                else:
+                    logger.warning(f"[okx] redeem_earn 失败: {result}")
+        except Exception as e:
+            logger.warning(f"[okx] redeem_earn 异常: {e}")
+        return total
 
     async def get_total_balance(self) -> float:
         # OKX /api/v5/account/balance details[USDT].eq = 总权益（含冻结+未实现盈亏）
@@ -1432,6 +1503,43 @@ class BitgetClient(BaseClient):
         except Exception as e:
             logger.debug(f"[bitget] spot balance 查询失败: {e}")
         return 0.0
+
+    async def redeem_earn(self) -> float:
+        # Bitget 活期理财赎回 → 现货账户
+        total = 0.0
+        try:
+            sess = await self._sess()
+            path = "/api/v2/earn/savings/assets?coin=USDT"
+            async with sess.get(
+                f"{self.base}{path}",
+                headers=self._sign("GET", path, use_pap=False),
+                ssl=False, timeout=aiohttp.ClientTimeout(total=5), **self._px(),
+            ) as r:
+                data = await r.json()
+            if str(data.get("code", "")) == "00000":
+                raw = data.get("data") or {}
+                items = raw.get("resultList") or [] if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
+                for item in items:
+                    amt = float(item.get("holdAmount", 0))
+                    if amt < 0.01:
+                        continue
+                    order_id = item.get("orderId", "")
+                    body_d = {"orderId": order_id}
+                    body = json.dumps(body_d)
+                    rpath = "/api/v2/earn/savings/redeem"
+                    async with sess.post(
+                        f"{self.base}{rpath}",
+                        headers=self._sign("POST", rpath, body, use_pap=False),
+                        data=body, ssl=False, **self._px(),
+                    ) as r2:
+                        result = await r2.json()
+                    if str(result.get("code", "")) == "00000":
+                        total += amt
+                    else:
+                        logger.warning(f"[bitget] redeem_earn 失败: {result}")
+        except Exception as e:
+            logger.warning(f"[bitget] redeem_earn 异常: {e}")
+        return total
 
     async def get_total_balance(self) -> float:
         # Bitget: available + locked（持仓保证金）≈ 总权益（保守估算，未含未实现盈亏）

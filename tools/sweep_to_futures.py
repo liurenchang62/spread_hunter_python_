@@ -31,9 +31,17 @@ async def _sweep_one(ex: str, keys: dict, dry_run: bool) -> dict:
     cls_map = {"binance": BinanceClient, "okx": OKXClient,
                "gate": GateClient, "bitget": BitgetClient}
     client = cls_map[ex](live=True, keys=keys)
-    result = {"ex": ex, "spot_before": 0.0, "futures_before": 0.0,
+    result = {"ex": ex, "earned": 0.0, "spot_before": 0.0, "futures_before": 0.0,
               "swept": 0.0, "ok": None, "error": None}
     try:
+        # Step 1: 赎回理财 → 现货/资金账户
+        if not dry_run:
+            earned = await client.redeem_earn()
+            result["earned"] = earned
+            if earned > 0.01:
+                await asyncio.sleep(2)  # 等待到账
+
+        # Step 2: 查询现货/期货余额
         spot, futures = await asyncio.gather(
             client.get_spot_balance(),
             client.get_balance(),
@@ -51,6 +59,7 @@ async def _sweep_one(ex: str, keys: dict, dry_run: bool) -> dict:
             result["swept"] = result["spot_before"]
             return result
 
+        # Step 3: 划转到期货账户
         ok = await client.transfer_to_futures(result["spot_before"])
         result["ok"]    = "ok" if ok else "fail"
         result["swept"] = result["spot_before"] if ok else 0.0
@@ -81,18 +90,21 @@ async def _main(exchanges: list[str], dry_run: bool):
     results = await asyncio.gather(*tasks.values(), return_exceptions=True)
 
     total_swept = 0.0
-    print(f"  {'交易所':<10} {'现货余额':>10} {'合约余额':>10} {'划转':>10} {'状态'}")
-    print(f"  {'-'*10} {'-'*10} {'-'*10} {'-'*10} {'-'*6}")
+    print(f"  {'交易所':<10} {'理财赎回':>10} {'现货余额':>10} {'合约余额':>10} {'划转':>10} {'状态'}")
+    print(f"  {'-'*10} {'-'*10} {'-'*10} {'-'*10} {'-'*10} {'-'*6}")
     for r in results:
         if isinstance(r, Exception):
-            print(f"  {'?':<10} {'':>10} {'':>10} {'':>10} {R}异常: {r}{W}")
+            print(f"  {'?':<10} {'':>10} {'':>10} {'':>10} {'':>10} {R}异常: {r}{W}")
             continue
         ex     = r["ex"]
+        earned = r.get("earned", 0.0)
         spot   = r["spot_before"]
         fut    = r["futures_before"]
         swept  = r["swept"]
         status = r["ok"]
         total_swept += swept
+
+        earned_s = f"{G}{earned:>10.2f}{W}" if earned > 0 else f"{'0.00':>10}"
 
         if status == "skip":
             flag = f"{C}─ 无需划转（< {MIN_SWEEP}U）{W}"
@@ -105,7 +117,7 @@ async def _main(exchanges: list[str], dry_run: bool):
         else:
             flag = f"{R}异常: {r.get('error', '')}{W}"
 
-        print(f"  {ex:<10} {spot:>10.2f} {fut:>10.2f} {swept:>10.2f}  {flag}")
+        print(f"  {ex:<10} {earned_s} {spot:>10.2f} {fut:>10.2f} {swept:>10.2f}  {flag}")
 
     print(f"\n  {'合计划转':<20} {total_swept:.2f} USDT")
     if dry_run:
