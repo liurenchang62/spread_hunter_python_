@@ -45,7 +45,10 @@ from trader.config import (
     STOP_LOSS_PCT,
     TESTNET_EXCHANGES,
     MARKET_INFO_REFRESH_H,
+    FUNDING_EXIT_BEFORE_S,
 )
+
+MAX_SYMBOL_NOTIONAL_PCT = getattr(_trader_cfg, "MAX_SYMBOL_NOTIONAL_PCT", 0.0)
 
 # 与旧版仅复制 config.example 的部署兼容（未定义时使用安全默认）
 LEVERAGE = getattr(_trader_cfg, "LEVERAGE", 1)
@@ -206,6 +209,24 @@ class Trader:
         if not can_open:
             logger.info(f"[trader] 拒绝 {sym} {big}/{small} | 仓位限制: {position_reason}")
             return
+
+        # 单标的名义价值集中度检查
+        if MAX_SYMBOL_NOTIONAL_PCT > 0:
+            total_eq = sum(self.risk.state.balance.values())
+            if total_eq > 0:
+                sym_notional = sum(
+                    (p.small_leg.size_usdt if p.small_leg else 0.0)
+                    + (p.big_leg.size_usdt  if p.big_leg  else 0.0)
+                    for p in self.pm.open_positions()
+                    if p.symbol == sym and p.is_open
+                )
+                max_notional = total_eq * MAX_SYMBOL_NOTIONAL_PCT
+                if sym_notional >= max_notional:
+                    logger.info(
+                        f"[trader] 拒绝 {sym} {big}/{small} | 单标的仓位"
+                        f" {sym_notional:.1f}U >= 上限 {max_notional:.1f}U ({MAX_SYMBOL_NOTIONAL_PCT:.0%})"
+                    )
+                    return
 
         # 动态单腿资金 = min(各所余额) × 1% / 2 = 0.5%，但不少于最小下单金额
         balances = self.risk.state.balance
@@ -493,6 +514,10 @@ class Trader:
                 f"[trader] 平仓完成 {pos.id} | pnl={closed.pnl_usdt:+.4f} USDT"
                 f" | 累计PnL={self._total_pnl:+.4f} USDT"
             )
+            # 止损触发 → 当天不再开新仓
+            if reason == "stop_loss":
+                self.risk.state.stop_loss_today = True
+                logger.warning("[trader] 止损平仓，当日停止开仓（UTC 午夜重置）")
             # 会话上限已达且所有持仓已清空 → 纯监控模式
             if self._session_cap_reached and not self.pm.open_positions():
                 logger.warning(
@@ -555,7 +580,7 @@ class Trader:
                     f"[trader] 日止损触发，等待持仓全部平仓后退出… | {rs.halt_reason}"
                 )
                 # 等待所有持仓平仓
-                deadline = time.monotonic() + MAX_HOLD_SECONDS + 30
+                deadline = time.monotonic() + 300  # 最多等 5 分钟让持仓平完
                 while time.monotonic() < deadline:
                     if not self.pm.open_positions():
                         break
@@ -597,11 +622,25 @@ class Trader:
         self._exit_tasks[pos_id] = task
         task.add_done_callback(lambda t: self._exit_tasks.pop(pos_id, None))
 
-    def _check_exit_reason(self, pos: Position, anomaly: float) -> str:
+    def _net_funding_rate(self, pos: "Position") -> float:
+        """返回持仓的净资金费率（正=有利，负=不利）。long: 做多小所空大所；short反之。"""
+        sr = self.mi.get_funding_rate(pos.small_exchange, pos.symbol)
+        br = self.mi.get_funding_rate(pos.big_exchange,   pos.symbol)
+        return (br - sr) if pos.direction == "long" else (sr - br)
+
+    def _check_exit_reason(self, pos: "Position", anomaly: float) -> str:
+        # 1. 费率不利 → 结算前 FUNDING_EXIT_BEFORE_S 秒平仓
+        if self._net_funding_rate(pos) < 0:
+            secs_left = _seconds_to_next_funding()
+            if secs_left <= FUNDING_EXIT_BEFORE_S:
+                return "funding_exit"
+        # 2. 兜底超时（极长，正常不触发）
         if pos.hold_seconds >= MAX_HOLD_SECONDS:
             return "timeout"
+        # 3. 止盈（价差收敛）
         if abs(anomaly) <= CONVERGENCE_PCT:
             return "convergence"
+        # 4. 止损（5%）
         if pos.direction == "long"  and anomaly < -STOP_LOSS_PCT:
             return "stop_loss"
         if pos.direction == "short" and anomaly >  STOP_LOSS_PCT:
@@ -653,3 +692,15 @@ class Trader:
             await self.ob.close()
         except Exception:
             pass
+
+
+def _seconds_to_next_funding() -> float:
+    """
+    返回距离下一个资金费结算时间点的秒数。
+    Binance/OKX/Gate/Bitget 均为每 8 小时结算一次：UTC 0:00 / 8:00 / 16:00。
+    """
+    now_utc = time.time() % 86400   # 当天已过秒数（UTC）
+    for t in (0, 28800, 57600, 86400):
+        if t > now_utc:
+            return t - now_utc
+    return 86400 - now_utc

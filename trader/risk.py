@@ -55,6 +55,9 @@ class RiskState:
     # 再平衡控制（由 RebalanceSupervisor 设置）
     rebalance_paused: bool = False        # True = 再平衡进行中，暂停开仓
 
+    # 当日止损标记：止损平仓后当天不再开仓，UTC 午夜重置
+    stop_loss_today: bool = False
+
 
 class RiskManager:
     """
@@ -124,6 +127,10 @@ class RiskManager:
         if s.halted:
             return False, f"halted({s.halt_type}): {s.halt_reason}"
 
+        # 当日止损后禁止开仓
+        if s.stop_loss_today:
+            return False, "stop_loss_today: 当日已触发止损，不再开仓"
+
         # 失败冷却
         now_mono = time.monotonic()
         if now_mono < s.cooldown_until:
@@ -191,6 +198,8 @@ class RiskManager:
             self.state.halted     = False
             self.state.halt_reason = ""
             self.state.halt_type   = ""
+        # 重置当日止损标记
+        self.state.stop_loss_today = False
         logger.info(
             f"[risk] UTC 日重置 | 新日初余额={self.state.day_start_total:.2f} USDT"
         )

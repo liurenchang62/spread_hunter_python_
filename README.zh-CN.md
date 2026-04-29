@@ -1,279 +1,193 @@
-﻿# Spread Hunter（中文版）
+# Spread Hunter — 跨交易所价差套利系统
 
-英文全文请见 [README.md](README.md)。
-
----
-
-<a name="中文文档"></a>
-## 中文文档
-
-### 📋 项目概述
-
-Spread Hunter 是一个**跨交易所价差套利系统**，通过监控多家加密货币交易所的永续合约价格差异，自动检测并执行统计套利策略。系统采用**低频、低延迟**设计，专注于高置信度的均值回归机会。
-
-**核心特点：**
-- **统计套利策略**：基于滚动中位数基准线，捕捉大所异动→小所延迟的价差机会
-- **全自动化**：行情监控、信号检测、风险评估、下单执行、持仓管理全流程自动化
-- **多交易所支持**：同时监控 4 家交易所（Binance、OKX、Gate、Bitget）
-- **实时风控**：日止损、最大敞口、持仓超时、紧急平仓等多重保护机制
-- **Latest-Wins 架构**：同一交易对的新信号自动取消旧任务，确保执行最新行情
+**[English README](README.md)**
 
 ---
 
-### 🏗️ 项目架构
+## 项目概述
+
+Spread Hunter 是一个**跨交易所永续合约统计套利系统**。核心思路：大所（Binance/OKX）价格领先，小所（Gate/Bitget）跟随滞后——在滞后窗口内同时在小所开仓、大所对冲，等价差回归后平仓获利。
+
+**系统特点**
+- 全自动：行情接入 → 信号检测 → 成本评估 → 双腿下单 → 持仓管理，无需人工干预
+- 低延迟：WebSocket 实时行情，信号过滤为纯内存操作（μs 级）
+- 资金费感知：费率不利时在结算前自动平仓；费率有利时继续持有
+- 多重风控：日止损 / 止损后当日停开仓 / 单标的集中度限制 / 多所自动再平衡
+
+---
+
+## 系统架构
 
 ```
-spread_hunter_python/
-├── main.py                    # 主入口：启动 Tracker + Trader
-├── tracker/                   # 行情监控模块
-│   ├── tracker.py            # 主控制器：协调各组件
-│   ├── ws_feed.py            # WebSocket 行情接收（多所并发）
-│   ├── baseline.py           # 滚动中位数基准线计算
-│   ├── signal_detector.py    # 异常检测算法（opportunity 信号生成）
-│   ├── symbol_selector.py    # 动态标的筛选（按成交额排序）
-│   ├── spread_logger.py      # 价差数据记录（CSV）
-│   └── models.py             # 数据模型（Tick、MarketEvent）
-├── trader/                    # 交易执行模块
-│   ├── trader.py             # 主交易控制器（开平仓逻辑）
-│   ├── exchange_client.py    # 交易所 REST API 客户端
-│   ├── risk.py               # 风险管理（日止损、余额监控）
-│   ├── position_manager.py   # 持仓管理
-│   ├── cost_model.py         # 成本评估模型（手续费、滑点）
-│   ├── orderbook.py          # 订单簿缓存（滑点评估）
-│   ├── market_info.py        # 合约规格与资金费率
-│   ├── position.py           # 持仓数据模型
-│   └── config.py             # 交易参数配置
-├── clients/                   # 交易所配置
-│   ├── config.py             # WS/REST URL、标的格式转换
-│   └── api_keys.py           # API 密钥（本地文件，不提交）
-├── server/                    # 服务器同步、SSH 一键登录、运维说明（见 SERVER_COMMANDS）
-│   ├── sync_to_server.py
-│   ├── login.ps1 / login.bat
-│   ├── SERVER_COMMANDS.txt
-│   └── deploy_server.sh       # 可选：在 Linux VPS 上首次部署依赖时执行
-├── test/                      # 测试套件
-│   ├── run_all.py            # 全量测试入口
-│   ├── test_balance.py       # 余额查询测试
-│   ├── test_positions.py     # 持仓查询测试
-│   ├── test_cancel.py        # 限价单挂撤测试
-│   ├── test_orders.py        # 市价单开平仓测试
-│   ├── test_transfer.py      # 期货→现货划转测试
-│   └── _common.py            # 测试公共工具
-└── logs/                      # 日志输出目录
-    ├── tracker.log           # 行情监控日志
-    ├── trader.log            # 交易执行日志
-    ├── main.log              # 主程序日志
-    ├── spread_snapshots.csv  # 价差快照数据
-    ├── signals.csv           # 交易信号记录
-    └── positions.csv         # 持仓记录
-
+main.py                     主入口：启动时自动赎回理财→划转到合约→清理残仓
+├── tracker/                行情监控模块
+│   ├── ws_feed.py          4所 WebSocket 并发接收（bid/ask/mid）
+│   ├── baseline.py         滚动中位数基准（每对交易所独立维护）
+│   ├── signal_detector.py  信号检测：大所异动 + 小所滞后 → MarketEvent
+│   └── symbol_selector.py  每 8h 按成交额动态筛选 TOP 50 标的
+├── trader/
+│   ├── trader.py           主控制器：开仓 / 平仓 / 超时 / 资金费退出
+│   ├── exchange_client.py  4所 REST 客户端（下单 / 余额 / 划转 / 赎回理财）
+│   ├── risk.py             风控：日止损 / 止损当日停开 / 余额刷新
+│   ├── cost_model.py       成本评估：价差收益 - 手续费 - 滑点 = 净利润
+│   ├── market_info.py      合约规格 + 资金费率（每 4h 刷新）
+│   └── config.py           ← 所有交易参数（见下方参数说明）
+└── rebalance/
+    └── supervisor.py       每 4h 检查各所余额，不足 20% 时自动链上转账补充
 ```
 
 ---
 
-### ⚙️ 核心组件说明
+## 交易逻辑
 
-#### 1. 行情监控（Tracker）
+### 1. 信号检测（Tracker）
 
-| 组件 | 功能说明 |
-|------|----------|
-| **SymbolSelector** | 每 8 小时动态筛选 TOP N 交易标的，按 24h 成交额排序，取 5 所交集 |
-| **WSFeed** | 并发连接 5 所 WebSocket，实时接收 tick 数据（bid/ask/mid） |
-| **BaselineTracker** | 维护滚动中位数基准线（Rolling Median），每对交易所独立计算 |
-| **SignalDetector** | 检测异常价差：大所异动（leader_move_pct）→ 小所延迟 → 生成 MarketEvent |
-| **SpreadLogger** | 记录价差快照（CSV），用于事后分析策略表现 |
+```
+每个 tick（大所）:
+  1. 计算大所在过去 1 秒内的价格变动幅度
+  2. 若变动 >= LEADER_MOVE_PCT (0.3%)，认为大所发生有效异动
+  3. 对每个小所计算:
+       anomaly = 当前价差 - 历史滚动中位数基准
+  4. 若 |anomaly| >= ANOMALY_MIN_PCT (0.5%) 且方向一致 → 发出 MarketEvent
+```
 
-**信号生成逻辑：**
-1. 计算大所价格相对其历史基准的变动率 `leader_move = (big_mid - big_base) / big_base`
-2. 当 `leader_move > LEADER_MOVE_PCT`（默认 0.5%）时，认为大所发生显著异动
-3. 检查小所价格是否滞后（未跟上大所变动）
-4. 计算异常百分比 `anomaly_pct = (big_mid - small_mid) / small_base * 100`
-5. 当 `abs(anomaly_pct) > ANOMALY_MIN_PCT`（默认 0.3%）时，生成交易信号
+`anomaly` 是**相对历史基准的偏差**，不是绝对价差。同一对交易所的固定结构性价差会被基准吸收，只有突发偏离才触发信号。
 
-#### 2. 交易执行（Trader）
+### 2. 开仓条件（全部满足才下单）
 
-| 组件 | 功能说明 |
-|------|----------|
-| **Trader** | 主控制器：注册回调、调度开平仓任务、风控监控 |
-| **ExchangeClient** | 统一封装 4 所 API（Binance、OKX、Gate、Bitget），支持测试网/Demo |
-| **RiskManager** | 日止损（daily_loss）、最大敞口（max_exposure）、余额监控 |
-| **PositionManager** | 持仓状态管理（open/closing/closed）、防重复开仓 |
-| **CostModel** | 成本评估：预估净利润 = 价差收益 - 手续费 - 滑点 |
-| **OrderBookCache** | 缓存实时订单簿，用于滑点评估 |
+| 条件 | 参数 | 说明 |
+|------|------|------|
+| 异常幅度 | `MIN_ANOMALY_TO_OPEN_PCT = 0.5%` | 价差偏离基准 ≥ 0.5% |
+| 成本可行 | `MIN_NET_ROI = 0.1%` | 扣除手续费+滑点后净 ROI ≥ 0.1% |
+| 仓位未满 | `MAX_POSITIONS_PER_PAIR = 1` | 同一套利对最多 1 笔 |
+| 标的集中度 | `MAX_SYMBOL_NOTIONAL_PCT = 30%` | 单标的名义价值 ≤ 总权益 30% |
+| 余额充足 | — | 各所期货可用余额 ≥ 单腿资金 |
+
+**资金分配：** 单腿资金 = `min(各所余额) × 1% ÷ 2`（两腿合计 1%），最低 6 USDT
+
+**下单方式：** 两腿并发 IOC 市价单（Immediate-Or-Cancel），无挂单残留
+
+### 3. 平仓条件（按优先级）
+
+| 优先级 | 原因 | 触发条件 |
+|--------|------|----------|
+| 1 | **资金费退出** | 净资金费率 < 0（不利）且距结算 ≤ 5 分钟 |
+| 2 | **止盈（收敛）** | `\|anomaly\| ≤ CONVERGENCE_PCT = 0.15%`，价差回归正常 |
+| 3 | **止损** | anomaly 反向超过 `STOP_LOSS_PCT = 5%`；触发后**当日不再开新仓** |
+| 4 | **兜底超时** | 持仓超过 `MAX_HOLD_SECONDS = 8h`（正常不触发） |
+
+**资金费逻辑：**
+- Long 仓位净费率 = `big所费率 - small所费率`
+- Short 仓位净费率 = `small所费率 - big所费率`
+- 正值 = 有利（继续持有）；负值 = 不利（结算前平仓）
+
+### 4. 紧急处理
+
+一腿成交、另一腿失败时，自动反向平掉已成交的腿（`_emergency_close`），恢复 delta 中性，避免单边敞口。
 
 ---
 
-### 💰 交易逻辑详解
+## 风控体系
 
-#### 开仓逻辑（_on_opportunity → _place_entry）
+| 风控项 | 参数 | 说明 |
+|--------|------|------|
+| 日止损 | `DAILY_HALT_PCT = 0.95` | 当日余额跌破日初 95% → 全部平仓并停机 |
+| 止损后停开 | — | 任一仓位止损后，当天不再开新仓（UTC 0 点重置） |
+| 单标的集中度 | `MAX_SYMBOL_NOTIONAL_PCT = 0.30` | 同一合约全部仓位 ≤ 总权益 30% |
+| 连续失败冷却 | `MAX_CONSECUTIVE_FAILS = 3` | 连续 3 次下单失败 → 冷却 5 分钟 |
+| 频率限制 | `MAX_ORDERS_PER_MIN = 10` | 每所每分钟最多 10 笔 |
+| 再平衡 | `REBALANCE_FLOOR_PCT = 0.20` | 任一所资金 < 总量 20% → 自动链上补充 |
 
-**1. 信号过滤（同步检查，μs 级延迟）**
+---
+
+## 完整参数说明
+
+### trader/config.py（交易参数，已纳入版本管理）
+
 ```python
-if abs(sig.anomaly_pct) < MIN_ANOMALY_TO_OPEN_PCT:  # 默认 0.3%
-    return  # 异常太小，忽略
+# ── 主开关 ──────────────────────────────────────────────────────────────────
+LIVE_TRADING_ON = False        # True = 主网实盘；False = 测试网/Demo
 
-if not self.pm.can_open(big, small, sym):
-    return  # 已有同方向持仓，或正在开仓中
+# ── 资金结构 ─────────────────────────────────────────────────────────────────
+PAIR_CAPITAL_PCT          = 0.01   # 每对两腿合计资金 = min(各所余额) × 1%
+MIN_ORDER_NOTIONAL_USDT   = 6.0    # 单腿最小名义价值（USDT），交易所要求下限
+LEVERAGE                  = 1      # 合约杠杆（1 = 不借钱，风险最低）
 
-ok, reason = self.risk.check_can_open(big, small, sym, notional)
-if not ok:
-    return  # 风控拒绝（余额不足、日止损、超敞口等）
+# ── 仓位限制 ─────────────────────────────────────────────────────────────────
+MAX_POSITIONS_PER_PAIR    = 1      # 同一套利对（big-small-symbol）最多同时 N 笔
+MAX_POSITIONS_PER_SYMBOL  = 3      # 同一合约跨所有套利对最多 N 笔
+MAX_SYMBOL_NOTIONAL_PCT   = 0.30   # 单标的名义价值上限 = 总权益 × 30%
+SESSION_MAX_ENTRIES       = 1      # 本次启动最多开仓 N 笔（None = 不限，测试用）
+
+# ── 开仓条件 ─────────────────────────────────────────────────────────────────
+MIN_ANOMALY_TO_OPEN_PCT   = 0.5    # 价差偏离基准 ≥ 0.5% 才开仓（= 50 bps）
+MIN_NET_ROI               = 0.001  # 扣费后净 ROI ≥ 0.1% 才开仓
+
+# ── 成本模型 ─────────────────────────────────────────────────────────────────
+HOLD_ESTIMATE_S           = 60.0   # 预估持仓时长（秒），用于资金费估算
+SLIPPAGE_MULTIPLIER       = 0.5    # 滑点系数（BBO 价差 × 0.5，保守估计）
+
+# ── 平仓条件 ─────────────────────────────────────────────────────────────────
+CONVERGENCE_PCT           = 0.15   # |anomaly| ≤ 0.15% → 止盈平仓
+STOP_LOSS_PCT             = 5.0    # anomaly 反向超 5% → 止损，当日停开仓
+MAX_HOLD_SECONDS          = 28800  # 兜底超时（8h），正常由上述条件平仓
+FUNDING_EXIT_BEFORE_S     = 300    # 费率不利时，结算前 N 秒平仓（5 分钟）
+
+# ── 风控参数 ─────────────────────────────────────────────────────────────────
+DAILY_HALT_PCT            = 0.95   # 余额跌破日初 95% → 日止损停机
+MAX_CONSECUTIVE_FAILS     = 3      # 连续下单失败 N 次后进入冷却
+FAILURE_COOLDOWN_S        = 300    # 冷却时长（秒）
+MAX_ORDERS_PER_MIN        = 10     # 每所每分钟最大下单次数
+BALANCE_REFRESH_S         = 60     # 账户余额后台刷新周期（秒）
+
+# ── 再平衡 ───────────────────────────────────────────────────────────────────
+REBALANCE_CHECK_INTERVAL_H = 4     # 检查周期（小时）
+REBALANCE_FLOOR_PCT        = 0.20  # 单所资金 < 总量 20% → 触发再平衡
 ```
 
-**2. 资金计算**
-- 单腿资金 = `min(各所余额) × PAIR_CAPITAL_PCT / 2`（默认 1% / 2 = 0.5%）
-- 最低要求：单腿资金 ≥ `MIN_ORDER_NOTIONAL_USDT`（默认 50 USDT）
-- 名义价值 = 单腿资金 × 2（两腿合计）
+### tracker/config.py（行情参数）
 
-**3. 成本模型评估（cost_evaluate）**
 ```python
-cr = cost_evaluate(ev, big, small, self.mi,
-                   leg_budget=leg_budget,
-                   small_ob=ob_pair.small,  # 实时订单簿
-                   big_ob=ob_pair.big)
-# 评估内容：
-# - 预估成交价（考虑滑点）
-# - 手续费（taker fee）
-# - 净利润 = 价差收益 - 手续费 - 滑点
-# - ROI = 净利润 / 占用资金
-if not cr.should_trade:
-    return  # 成本过高，放弃交易
+# ── 标的筛选 ─────────────────────────────────────────────────────────────────
+TOP_N_SYMBOLS             = 50          # 监控标的数量（4所交集取前 N）
+SYMBOL_REFRESH_H          = 8           # 标的列表刷新周期（小时）
+MIN_VOLUME_USDT           = 10_000_000  # 24h 最低成交额（过滤低流动性标的）
+
+# ── 基准追踪 ─────────────────────────────────────────────────────────────────
+BASELINE_WARMUP_S         = 60     # 热身时间（秒），热身期只采集不发信号
+BASELINE_WINDOW           = 2000   # 滚动窗口大小（tick 数），用于计算中位数
+
+# ── 信号检测 ─────────────────────────────────────────────────────────────────
+LEADER_WINDOW_MS          = 1000   # 检测大所在过去 N ms 内的价格变动
+LEADER_MOVE_PCT           = 0.3    # 大所触发阈值：1秒内变动 ≥ 0.3%
+ANOMALY_MIN_PCT           = 0.5    # 异常价差阈值：偏离基准 ≥ 0.5% 才发信号
+COOLDOWN_MS               = 2000   # 同标的同方向冷却时间（毫秒）
 ```
-
-**4. 并发下单**
-```python
-# 根据 anomaly 方向确定买卖方向
-if direction == "long":   # 小所价格低，买小卖大
-    small_side = "buy"
-    big_side = "sell"
-else:  # "short"
-    small_side = "sell"
-    big_side = "buy"
-
-# 并发执行两腿下单
-small_task = self.clients[small].place_order(...)
-big_task = self.clients[big].place_order(...)
-small_res, big_res = await asyncio.gather(small_task, big_task)
-```
-
-**5. 成交后处理**
-- 创建 `Position` 对象（包含两腿成交信息）
-- 添加到 `PositionManager`
-- 通知 `RiskManager` 更新敞口
-- 解冻基准线（`unfreeze_pair`），避免异常价格污染
-
-#### 平仓逻辑（_on_tick → _do_exit）
-
-**1. 触发条件（持续检查，1秒周期）**
-
-| 条件 | 说明 |
-|------|------|
-| **收敛（convergence）** | `abs(anomaly_pct) <= CONVERGENCE_PCT`（默认 0.2%），价差回归正常 |
-| **止损（stop_loss）** | 对于 long 仓位，`anomaly < -STOP_LOSS_PCT`（默认 1%）；short 相反 |
-| **超时（timeout）** | `hold_seconds >= MAX_HOLD_SECONDS`（默认 1800s = 30分钟） |
-
-**2. 平仓执行**
-- 反向下单：如果开仓时小所 buy，则平仓时小所 sell
-- 并发执行两腿平仓
-- 计算实际 PnL = 平仓收益 - 开仓成本 - 手续费
-
-**3. 异常处理**
-- 如果一腿成功、一腿失败，触发**紧急平仓**（`_emergency_close`），撤销已成交的腿以恢复 delta 中性
-- 记录失败日志，人工介入处理
 
 ---
 
-### 🛡️ 风控系统
+## 快速开始
 
-| 风控项 | 配置参数 | 说明 |
-|--------|----------|------|
-| **日止损** | `DAILY_HALT_PCT = 0.95` | 余额低于日初 95% 时停机（默认 5% 日止损） |
-| **最大敞口** | `MAX_EXPOSURE_PCT = 0.20` | 总持仓名义价值 ≤ 总余额 20% |
-| **最小下单** | `MIN_ORDER_NOTIONAL_USDT = 50` | 单腿名义价值 ≥ 50 USDT |
-| **持仓超时** | `MAX_HOLD_SECONDS = 1800` | 超过 30 分钟强制平仓 |
-| **异常阈值** | `MIN_ANOMALY_TO_OPEN_PCT = 0.3` | 异常百分比 ≥ 0.3% 才开仓 |
-| **收敛阈值** | `CONVERGENCE_PCT = 0.2` | 异常回落到 0.2% 内平仓 |
-| **止损阈值** | `STOP_LOSS_PCT = 1.0` | 亏损达 1% 强制止损 |
-
----
-
-### 🚀 快速开始
-
-#### 1. 安装依赖
 ```bash
-pip install -r requirements.txt  # aiohttp, numpy, pandas 等
-```
+# 1. 安装依赖
+pip install -r requirements.txt
 
-#### 2. 配置 API 密钥
-在 `clients/api_keys.py` 中添加交易所 API 密钥：
-```python
-BINANCE_TESTNET_API_KEY = "your_key"
-BINANCE_TESTNET_SECRET_KEY = "your_secret"
-OKX_DEMO_API_KEY = "your_key"
-OKX_DEMO_SECRET_KEY = "your_secret"
-OKX_DEMO_PASSPHRASE = "your_passphrase"
-# ... Gate、Bitget 同理
-```
+# 2. 配置 API 密钥（本地文件，不提交 git）
+# clients/api_keys.py        ← 测试网密钥
+# clients/api_keys_live.py   ← 实盘密钥
+# clients/withdrawal_addresses.py ← 各所充值地址（再平衡用）
 
-#### 3. 运行测试（测试网/Demo 环境）
-```bash
-# 测试所有交易所 API
-python -m test_demo.run_all
-
-# 单个测试
-python -m test_demo.test_balance
-python -m test_demo.test_orders
-```
-
-#### 4. 启动系统（测试网）
-```bash
+# 3. 启动（测试网/Demo）
 python main.py
-```
 
-#### 5. 启动系统（主网实盘 ⚠️ 慎用）
-```bash
+# 4. 启动（主网实盘，需将 config.py 中 LIVE_TRADING_ON = True）
 python main.py --live
-# 输入 YES 确认后启动
 ```
 
 ---
 
-### 服务器同步、登录与部署（`server/`）
+## 注意事项
 
-不向 GitHub 推送密钥时，可使用 `server/` 下的脚本与说明：
-
-| 项 | 说明 |
-|------|------|
-| `pip install -r server/requirements.txt` | **`sync_to_server.py`** 所需依赖（SFTP）。 |
-| `python server/sync_to_server.py --mode all` | 同步相对 `HEAD` 有改动的**未被 ignore** 文件，并在远端按 Git **删除** 已删路径，与本地工作区对齐。 |
-| `python server/sync_to_server.py --mode ignored` | 仅同步 **`.gitignore` 的文件**（典型为密钥、`trader/config.py`、`env/` 等）；默认排除 `.venv`、缓存、`logs/` 等；加 `--full-ignored` 可同步全部被 ignore 的路径。 |
-| 环境变量 | `SERVER_PASSWORD`（必填）；可选 `SERVER_HOST` / `SPREAD_HUNTER_SERVER`、`SERVER_USER`、`SERVER_REMOTE`、`SERVER_PORT`。 |
-| `server\login.bat` | 一键 SSH；优先调用 **PuTTY `plink`**（从环境变量带密码）；未安装则回退 **`ssh.exe`**（需密钥或手动输密码）。 |
-| `server/deploy_server.sh` | 在 **Linux 服务器仓库根目录**首次/重装依赖：`chmod +x server/deploy_server.sh && ./server/deploy_server.sh`。 |
-
-详尽命令：`server/SERVER_COMMANDS.txt`。已跟踪代码在服务器仍用 **`git pull`**。
-
----
-
-### 📊 关键配置参数
-
-在 `trader/config.py` 和 `tracker/config.py` 中调整：
-
-```python
-# 交易参数
-MIN_ANOMALY_TO_OPEN_PCT = 0.3      # 开仓最小异常百分比
-CONVERGENCE_PCT = 0.2              # 平仓收敛阈值
-STOP_LOSS_PCT = 1.0                # 止损阈值
-MAX_HOLD_SECONDS = 1800            # 最大持仓时间
-PAIR_CAPITAL_PCT = 0.01            # 单对占用资金比例（1%）
-
-# 风控参数
-DAILY_HALT_PCT = 0.95              # 日止损比例（5%）
-MAX_EXPOSURE_PCT = 0.20            # 最大敞口比例
-
-# 行情参数
-TOP_N_SYMBOLS = 50                 # 监控标的数量
-BASELINE_WARMUP_S = 300            # 基准线热身时间（秒）
-LEADER_MOVE_PCT = 0.5              # 大所异动检测阈值
-```
-
+- `clients/api_keys*.py` 和 `clients/withdrawal_addresses.py` 已在 `.gitignore`，不会提交
+- `trader/config.py` 已纳入版本管理，修改参数后会随代码同步
+- 实盘前请在测试网充分验证，套利策略在极端行情下仍有亏损风险

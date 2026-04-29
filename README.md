@@ -1,213 +1,193 @@
-﻿# Spread Hunter — Cross-Exchange Spread Arbitrage System
+# Spread Hunter — Cross-Exchange Spread Arbitrage System
 
-**[中文版 README.zh-CN.md](README.zh-CN.md)**
-
----
-
-<a name="english-documentation"></a>
-## English Documentation
-
-### 📋 Overview
-
-**Spread Hunter** is a cross-exchange statistical arbitrage system that monitors perpetual contract prices across multiple crypto exchanges to automatically detect and execute mean-reversion strategies. The system uses a **low-frequency, low-latency** design focused on high-confidence trading opportunities.
-
-**Key Features:**
-- **Statistical Arbitrage**: Based on rolling median baselines, captures price discrepancies where major exchanges lead and smaller exchanges lag
-- **Fully Automated**: End-to-end automation from market data ingestion to position management
-- **Multi-Exchange**: Monitors 4 exchanges simultaneously (Binance, OKX as majors; Gate, Bitget as minors)
-- **Risk Management**: Daily loss limits, max exposure controls, position timeouts, emergency liquidation
-- **Latest-Wins Architecture**: New signals for the same pair automatically cancel pending tasks, ensuring execution on the freshest data
+**[中文文档 README.zh-CN.md](README.zh-CN.md)**
 
 ---
 
-### 🏗️ Architecture
+## Overview
+
+Spread Hunter is a **cross-exchange perpetual futures statistical arbitrage system**. The core idea: major exchanges (Binance/OKX) lead in price discovery, while minor exchanges (Gate/Bitget) lag behind — within that lag window, open a position on the minor exchange and hedge on the major exchange, then close both legs when the spread reverts.
+
+**Key Features**
+- Fully automated: market data → signal detection → cost evaluation → concurrent order execution → position management
+- Low latency: WebSocket real-time feeds, signal filtering is pure in-memory (μs-level)
+- Funding-rate aware: exits before funding settlement when rate is unfavorable; holds when favorable
+- Multi-layer risk controls: daily loss halt / stop-loss day-ban / per-symbol concentration limit / automatic cross-exchange rebalancing
+
+---
+
+## Architecture
 
 ```
-spread_hunter_python/
-├── main.py                    # Entry point: launches Tracker + Trader
-├── tracker/                   # Market data module
-│   ├── tracker.py            # Main controller
-│   ├── ws_feed.py            # WebSocket feed handler (5 exchanges)
-│   ├── baseline.py           # Rolling median baseline calculator
-│   ├── signal_detector.py    # Anomaly detection algorithm
-│   ├── symbol_selector.py    # Dynamic symbol selection by volume
-│   ├── spread_logger.py      # Spread data logger (CSV)
-│   └── models.py             # Data models (Tick, MarketEvent)
-├── trader/                    # Trading execution module
-│   ├── trader.py             # Main trading controller
-│   ├── exchange_client.py    # Exchange REST API client
-│   ├── risk.py               # Risk management
-│   ├── position_manager.py   # Position management
-│   ├── cost_model.py         # Cost evaluation (fees, slippage)
-│   ├── orderbook.py          # Order book cache
-│   ├── market_info.py        # Contract specs & funding rates
-│   ├── position.py           # Position data models
-│   └── config.py             # Trading parameters
-├── clients/                   # Exchange configurations
-│   ├── config.py             # WS/REST URLs, symbol format conversion
-│   └── api_keys.py           # API keys (local file, not committed)
-├── server/                    # VPS: SFTP sync, SSH login helpers, SERVER_COMMANDS
-│   ├── sync_to_server.py
-│   ├── login.ps1 / login.bat
-│   ├── SERVER_COMMANDS.txt
-│   └── deploy_server.sh       # Optional: run on Linux VPS after clone/pull
-├── test/                      # Test suite
-│   ├── run_all.py            # Full test runner
-│   ├── test_balance.py       # Balance query test
-│   ├── test_positions.py     # Position query test
-│   ├── test_cancel.py        # Limit order test
-│   ├── test_orders.py        # Market order test
-│   ├── test_transfer.py      # Futures→spot transfer test
-│   └── _common.py            # Test utilities
-└── logs/                      # Log output directory
+main.py                     Entry: on startup, redeem earn → transfer to futures → close stale positions
+├── tracker/                Market data module
+│   ├── ws_feed.py          4-exchange concurrent WebSocket (bid/ask/mid)
+│   ├── baseline.py         Rolling median baseline per exchange pair
+│   ├── signal_detector.py  Signal: big-exchange move + small-exchange lag → MarketEvent
+│   └── symbol_selector.py  Every 8h, select TOP 50 symbols by volume (4-exchange intersection)
+├── trader/
+│   ├── trader.py           Main controller: entry / exit / timeout / funding exit
+│   ├── exchange_client.py  REST clients for 4 exchanges (orders / balances / transfers / earn)
+│   ├── risk.py             Risk: daily halt / stop-loss day-ban / balance refresh
+│   ├── cost_model.py       Cost evaluation: spread gain - fees - slippage = net profit
+│   ├── market_info.py      Contract specs + funding rates (refreshed every 4h)
+│   └── config.py           ← All trading parameters (see below)
+└── rebalance/
+    └── supervisor.py       Every 4h: if any exchange < 20% of total cash → auto on-chain transfer
 ```
 
 ---
 
-### 💰 Trading Logic Details
+## Trading Logic
 
-#### Entry Logic (_on_opportunity → _place_entry)
+### 1. Signal Detection (Tracker)
 
-**1. Signal Filtering (sync, μs latency)**
-```python
-if abs(sig.anomaly_pct) < MIN_ANOMALY_TO_OPEN_PCT:  # default 0.3%
-    return  # Anomaly too small, ignore
-
-if not self.pm.can_open(big, small, sym):
-    return  # Already have position or entry in progress
-
-ok, reason = self.risk.check_can_open(big, small, sym, notional)
-if not ok:
-    return  # Risk control rejected
+```
+On each tick from a major exchange:
+  1. Calculate price move of major exchange over the past 1 second
+  2. If move >= LEADER_MOVE_PCT (0.3%), the major exchange had a significant move
+  3. For each minor exchange, compute:
+       anomaly = current spread - rolling median baseline
+  4. If |anomaly| >= ANOMALY_MIN_PCT (0.5%) and direction matches → emit MarketEvent
 ```
 
-**2. Capital Calculation**
-- Leg budget = `min(balances) × PAIR_CAPITAL_PCT / 2` (default 0.5% per leg)
-- Minimum: leg budget ≥ `MIN_ORDER_NOTIONAL_USDT` (default 50 USDT)
+`anomaly` is the **deviation from the historical baseline**, not the absolute spread. Persistent structural spreads are absorbed into the baseline; only sudden departures trigger signals.
 
-**3. Cost Model Evaluation (cost_evaluate)**
-- Uses real-time order book to estimate slippage
-- Calculates: net profit = spread gain - fees - slippage
-- Only executes if `cr.should_trade` is True
+### 2. Entry Conditions (all must be satisfied)
 
-**4. Concurrent Execution**
-- Determines direction based on anomaly sign
-- Executes both legs concurrently (buy on small, sell on big for long)
+| Condition | Parameter | Description |
+|-----------|-----------|-------------|
+| Anomaly size | `MIN_ANOMALY_TO_OPEN_PCT = 0.5%` | Spread deviation from baseline ≥ 0.5% (50 bps) |
+| Cost-positive | `MIN_NET_ROI = 0.1%` | Net ROI after fees and slippage ≥ 0.1% |
+| Position limit | `MAX_POSITIONS_PER_PAIR = 1` | Max 1 open position per arbitrage pair |
+| Concentration | `MAX_SYMBOL_NOTIONAL_PCT = 30%` | Symbol notional ≤ 30% of total equity |
+| Balance | — | Futures available balance ≥ leg budget on each exchange |
 
-**5. Post-Execution**
-- Creates Position object with fill details
-- Unfreezes baseline to prevent stale data
+**Capital allocation:** leg budget = `min(exchange balances) × 1% ÷ 2` (1% total across both legs), minimum 6 USDT
 
-#### Exit Logic (_on_tick → _do_exit)
+**Order type:** Both legs placed concurrently as IOC market orders (Immediate-Or-Cancel), no resting orders
 
-**Exit Conditions (checked every 1 second):**
+### 3. Exit Conditions (by priority)
 
-| Condition | Description |
-|-----------|-------------|
-| **Convergence** | `abs(anomaly_pct) <= CONVERGENCE_PCT` (default 0.2%), spread normalized |
-| **Stop Loss** | For long: `anomaly < -STOP_LOSS_PCT` (default 1%); opposite for short |
-| **Timeout** | `hold_seconds >= MAX_HOLD_SECONDS` (default 1800s = 30min) |
+| Priority | Reason | Trigger |
+|----------|--------|---------|
+| 1 | **Funding exit** | Net funding rate < 0 (unfavorable) AND settlement ≤ 5 minutes away |
+| 2 | **Take profit (convergence)** | `\|anomaly\| ≤ CONVERGENCE_PCT = 0.15%` — spread normalized |
+| 3 | **Stop loss** | Adverse anomaly exceeds `STOP_LOSS_PCT = 5%`; triggers **no new entries for the rest of the day** |
+| 4 | **Fallback timeout** | Hold time exceeds `MAX_HOLD_SECONDS = 8h` (normally never reached) |
 
-**Emergency Handling:**
-- If one leg fills but the other fails, triggers `_emergency_close` to reverse the filled leg and restore delta neutrality
+**Funding rate logic:**
+- Long position net rate = `big_exchange_rate - small_exchange_rate`
+- Short position net rate = `small_exchange_rate - big_exchange_rate`
+- Positive = favorable (keep holding); Negative = unfavorable (exit before settlement)
+
+### 4. Emergency Handling
+
+If one leg fills but the other fails, `_emergency_close` automatically reverses the filled leg to restore delta-neutrality and prevent unhedged exposure.
 
 ---
 
-### 🛡️ Risk Management
+## Risk Controls
 
 | Control | Parameter | Description |
 |---------|-----------|-------------|
-| **Daily Loss** | `DAILY_HALT_PCT = 0.95` | Halt when balance < 95% of day start (5% daily loss limit) |
-| **Max Exposure** | `MAX_EXPOSURE_PCT = 0.20` | Total position notional ≤ 20% of total balance |
-| **Min Order** | `MIN_ORDER_NOTIONAL_USDT = 50` | Minimum 50 USDT notional per leg |
-| **Position Timeout** | `MAX_HOLD_SECONDS = 1800` | Force close after 30 minutes |
-| **Entry Threshold** | `MIN_ANOMALY_TO_OPEN_PCT = 0.3` | Only enter when anomaly ≥ 0.3% |
-| **Convergence** | `CONVERGENCE_PCT = 0.2` | Exit when anomaly converges to 0.2% |
-| **Stop Loss** | `STOP_LOSS_PCT = 1.0` | Stop loss at 1% loss |
+| Daily loss halt | `DAILY_HALT_PCT = 0.95` | Balance drops below 95% of day-start → close all, halt |
+| Post-stop-loss ban | — | After any stop-loss exit, no new entries until UTC midnight |
+| Concentration limit | `MAX_SYMBOL_NOTIONAL_PCT = 0.30` | All positions in one symbol ≤ 30% of total equity |
+| Failure cooldown | `MAX_CONSECUTIVE_FAILS = 3` | 3 consecutive order failures → 5-minute cooldown |
+| Rate limit | `MAX_ORDERS_PER_MIN = 10` | Max 10 orders per exchange per minute |
+| Rebalancing | `REBALANCE_FLOOR_PCT = 0.20` | Any exchange below 20% of total cash → auto top-up via on-chain transfer |
 
 ---
 
-### 🚀 Quick Start
+## Full Parameter Reference
 
-#### 1. Install Dependencies
-```bash
-pip install -r requirements.txt  # aiohttp, numpy, pandas
-```
+### trader/config.py (tracked in git)
 
-#### 2. Configure API Keys
-Add exchange API keys in `clients/api_keys.py`:
 ```python
-BINANCE_TESTNET_API_KEY = "your_key"
-BINANCE_TESTNET_SECRET_KEY = "your_secret"
-OKX_DEMO_API_KEY = "your_key"
-OKX_DEMO_SECRET_KEY = "your_secret"
-OKX_DEMO_PASSPHRASE = "your_passphrase"
-# ... Gate, Bitget similarly
+# ── Master Switch ────────────────────────────────────────────────────────────
+LIVE_TRADING_ON = False        # True = live mainnet; False = testnet/demo
+
+# ── Capital Structure ────────────────────────────────────────────────────────
+PAIR_CAPITAL_PCT          = 0.01   # Total budget per pair = min(balances) × 1%
+MIN_ORDER_NOTIONAL_USDT   = 6.0    # Minimum leg notional (USDT) per exchange requirement
+LEVERAGE                  = 1      # Contract leverage (1 = no borrowing, safest)
+
+# ── Position Limits ──────────────────────────────────────────────────────────
+MAX_POSITIONS_PER_PAIR    = 1      # Max simultaneous positions per (big-small-symbol) pair
+MAX_POSITIONS_PER_SYMBOL  = 3      # Max positions per symbol across all pairs
+MAX_SYMBOL_NOTIONAL_PCT   = 0.30   # Max symbol notional = total equity × 30%
+SESSION_MAX_ENTRIES       = 1      # Max entries per session (None = unlimited, test mode)
+
+# ── Entry Conditions ─────────────────────────────────────────────────────────
+MIN_ANOMALY_TO_OPEN_PCT   = 0.5    # Anomaly must exceed 0.5% (50 bps) from baseline
+MIN_NET_ROI               = 0.001  # Minimum net ROI after fees/slippage (0.1%)
+
+# ── Cost Model ───────────────────────────────────────────────────────────────
+HOLD_ESTIMATE_S           = 60.0   # Estimated hold time (seconds), for funding rate cost
+SLIPPAGE_MULTIPLIER       = 0.5    # Slippage = BBO spread × 0.5 (conservative estimate)
+
+# ── Exit Conditions ──────────────────────────────────────────────────────────
+CONVERGENCE_PCT           = 0.15   # |anomaly| ≤ 0.15% → take profit
+STOP_LOSS_PCT             = 5.0    # Adverse anomaly > 5% → stop loss + no entries today
+MAX_HOLD_SECONDS          = 28800  # Fallback timeout (8h), normally not triggered
+FUNDING_EXIT_BEFORE_S     = 300    # Exit N seconds before settlement if funding is unfavorable
+
+# ── Risk Parameters ──────────────────────────────────────────────────────────
+DAILY_HALT_PCT            = 0.95   # Halt when balance < 95% of day-start balance
+MAX_CONSECUTIVE_FAILS     = 3      # Cooldown after N consecutive order failures
+FAILURE_COOLDOWN_S        = 300    # Cooldown duration (seconds)
+MAX_ORDERS_PER_MIN        = 10     # Max orders per exchange per minute
+BALANCE_REFRESH_S         = 60     # Background balance refresh interval (seconds)
+
+# ── Rebalancing ──────────────────────────────────────────────────────────────
+REBALANCE_CHECK_INTERVAL_H = 4     # Check interval (hours)
+REBALANCE_FLOOR_PCT        = 0.20  # Trigger rebalance if any exchange < 20% of total cash
 ```
 
-#### 3. Run Tests (Testnet/Demo)
-```bash
-python -m test_demo.run_all
+### tracker/config.py (market data parameters)
+
+```python
+# ── Symbol Selection ─────────────────────────────────────────────────────────
+TOP_N_SYMBOLS             = 50          # Number of symbols to monitor (4-exchange intersection)
+SYMBOL_REFRESH_H          = 8           # Symbol list refresh interval (hours)
+MIN_VOLUME_USDT           = 10_000_000  # Min 24h volume to filter out illiquid symbols
+
+# ── Baseline Tracking ────────────────────────────────────────────────────────
+BASELINE_WARMUP_S         = 60     # Warm-up time (seconds); data collected, no signals fired
+BASELINE_WINDOW           = 2000   # Rolling window size (ticks) for median calculation
+
+# ── Signal Detection ─────────────────────────────────────────────────────────
+LEADER_WINDOW_MS          = 1000   # Look-back window to detect major exchange move (ms)
+LEADER_MOVE_PCT           = 0.3    # Major exchange trigger: move ≥ 0.3% in 1 second
+ANOMALY_MIN_PCT           = 0.5    # Minor exchange anomaly threshold: ≥ 0.5% from baseline
+COOLDOWN_MS               = 2000   # Per-symbol per-direction cooldown (ms)
 ```
 
-#### 4. Start System (Testnet)
+---
+
+## Quick Start
+
 ```bash
+# 1. Install dependencies
+pip install -r requirements.txt
+
+# 2. Configure API keys (local files, not committed to git)
+# clients/api_keys.py             ← testnet keys
+# clients/api_keys_live.py        ← live trading keys
+# clients/withdrawal_addresses.py ← deposit addresses for rebalancing
+
+# 3. Run on testnet/demo
 python main.py
-```
 
-#### 5. Start System (Live Trading ⚠️ Use with caution)
-```bash
+# 4. Run live (set LIVE_TRADING_ON = True in trader/config.py first)
 python main.py --live
-# Type YES to confirm
 ```
 
 ---
 
-### 📊 Key Parameters
+## Notes
 
-Adjust in `trader/config.py` and `tracker/config.py`:
-
-```python
-# Trading
-MIN_ANOMALY_TO_OPEN_PCT = 0.3      # Min anomaly to open position
-CONVERGENCE_PCT = 0.2              # Exit convergence threshold
-STOP_LOSS_PCT = 1.0                # Stop loss threshold
-MAX_HOLD_SECONDS = 1800            # Max position hold time
-PAIR_CAPITAL_PCT = 0.01            # Capital per pair (1%)
-
-# Risk
-DAILY_HALT_PCT = 0.95              # Daily loss halt threshold
-MAX_EXPOSURE_PCT = 0.20            # Max exposure ratio
-
-# Market Data
-TOP_N_SYMBOLS = 50                 # Number of symbols to monitor
-BASELINE_WARMUP_S = 300            # Baseline warm-up time
-LEADER_MOVE_PCT = 0.5              # Leader move detection threshold
-```
-
----
-
-### Server sync, login, VPS deploy (`server/`)
-
-Do not push secrets through GitHub. Use `server/` helpers:
-
-| Item | Purpose |
-|------|---------|
-| `pip install -r server/requirements.txt` | Dependencies for **`sync_to_server.py`** (Paramiko SFTP). |
-| `python server/sync_to_server.py --mode all` | Upload non‑ignored workspace changes vs `HEAD` **and delete** on VPS when Git shows deletes. |
-| `python server/sync_to_server.py --mode ignored` | Upload **gitignored** files (secrets / local config). Skips `.venv`, caches, `logs/`, …; add `--full-ignored` to upload all ignored paths. |
-| Env vars | `SERVER_PASSWORD` (required), optional `SERVER_HOST` or `SPREAD_HUNTER_SERVER`, `SERVER_USER`, `SERVER_REMOTE`, `SERVER_PORT`. |
-| `server\login.bat` | SSH login; prefers **PuTTY `plink`** (password via env); otherwise falls back to **`ssh.exe`** (keys or typed password). |
-| `server/deploy_server.sh` | Run **on Linux VPS** after `git clone` / `git pull`: `chmod +x server/deploy_server.sh && ./server/deploy_server.sh` |
-
-Operational details and scp snippets: **`server/SERVER_COMMANDS.txt`**.
-
----
-
-### 📄 License
-
-MIT License - For educational and research purposes. Trading cryptocurrencies carries significant risk.
-
----
-
-**⚠️ Risk Warning**: This system involves real-time trading of cryptocurrency derivatives. Ensure you fully understand the code and risks before using live funds. Always test thoroughly on testnet/demo environments first.
+- `clients/api_keys*.py` and `clients/withdrawal_addresses.py` are in `.gitignore` and will never be committed
+- `trader/config.py` is tracked in git — parameter changes are versioned alongside code
+- Always validate thoroughly on testnet before using live funds; arbitrage strategies can still lose money in volatile markets
