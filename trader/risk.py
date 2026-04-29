@@ -80,9 +80,23 @@ class RiskManager:
         await self._refresh_balances()
         self._init_day_start()
         self._balance_refresh_task = asyncio.ensure_future(self._balance_refresh_loop())
+
+        # 计算含理财/现货的真实总资产（仅用于启动日志显示，不影响风控逻辑）
+        display_total = self.state.day_start_total
+        display_by_ex = dict(self.state.day_start_by_ex)
+        for ex, client in self._clients.items():
+            try:
+                earn = await client.get_earn_balance()
+                spot = await client.get_spot_balance()
+                extra = (earn if isinstance(earn, float) else 0.0) + (spot if isinstance(spot, float) else 0.0)
+                if extra > 0.5:
+                    display_total += extra
+                    display_by_ex[ex] = display_by_ex.get(ex, 0.0) + extra
+            except Exception:
+                pass
         logger.info(
-            f"[risk] 启动 | 日初余额={self.state.day_start_total:.2f} USDT"
-            f" | 各所={self.state.day_start_by_ex}"
+            f"[risk] 启动 | 日初余额={display_total:.2f} USDT"
+            f" | 各所={display_by_ex}"
         )
 
     def stop(self) -> None:
