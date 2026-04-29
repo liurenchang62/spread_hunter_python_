@@ -729,7 +729,7 @@ class OKXClient(BaseClient):
 
     async def transfer_to_spot(self, amount: float) -> bool:
         # OKX：交易账户（18）→ 资金账户（6）
-        body_d = {"ccy": "USDT", "amt": str(amount), "from": "18", "to": "6",
+        body_d = {"ccy": "USDT", "amt": f"{amount:.2f}", "from": "18", "to": "6",
                   "type": "0"}
         body = json.dumps(body_d)
         path = "/api/v5/asset/transfer"
@@ -743,7 +743,7 @@ class OKXClient(BaseClient):
 
     async def transfer_to_futures(self, amount: float) -> bool:
         # OKX：资金账户（6）→ 交易账户（18）
-        body_d = {"ccy": "USDT", "amt": str(amount), "from": "6", "to": "18",
+        body_d = {"ccy": "USDT", "amt": f"{amount:.2f}", "from": "6", "to": "18",
                   "type": "0"}
         body = json.dumps(body_d)
         path = "/api/v5/asset/transfer"
@@ -1583,8 +1583,7 @@ class BitgetClient(BaseClient):
                     if amt < 0.01:
                         continue
                     order_id = item.get("orderId", "")
-                    period_type = item.get("periodType", "flexible")
-                    body_d = {"orderId": order_id, "periodType": period_type}
+                    body_d = {"orderId": order_id}
                     body = json.dumps(body_d)
                     rpath = "/api/v2/earn/savings/redeem"
                     async with sess.post(

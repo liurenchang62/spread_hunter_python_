@@ -95,7 +95,7 @@ async def _sweep_spot_to_futures():
                 if ok:
                     logger.info(f"[main] {ex} 现货→期货划转 {spot:.2f}U 成功")
                 else:
-                    logger.warning(f"[main] {ex} 现货→期货划转失败，请手动检查")
+                    logger.warning(f"[main] {ex} 现货→期货划转 {spot:.2f}U 失败，请手动检查")
             except Exception as e:
                 logger.warning(f"[main] {ex} 划转异常: {e}")
     finally:
