@@ -1589,7 +1589,7 @@ class BitgetClient(BaseClient):
                     order_id = item.get("orderId", "")
                     period_type = item.get("periodType", "")
                     logger.debug(f"[bitget] earn item: orderId={order_id} periodType={period_type!r} holdAmount={amt}")
-                    body_d: dict = {"orderId": order_id}
+                    body_d: dict = {"orderId": order_id, "amount": str(amt)}
                     if period_type:
                         body_d["periodType"] = period_type
                     body = json.dumps(body_d)
