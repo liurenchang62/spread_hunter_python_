@@ -1,181 +1,206 @@
-# Spread Hunter — 命令行速查
-# 在项目根目录 spread_hunter_python 下执行（PowerShell / CMD / zsh）
-# 云服务器：直连各所 API（无需 HTTP 代理）；API 白名单填「当前机器公网 IP」
+################################################################################
+#  Spread Hunter — 命令行速查
+#  执行目录：项目根目录 spread_hunter_python/
+#  云服务器：直连各所 API（无需代理）；API 白名单填当前机器公网 IP
+################################################################################
+#
+#  目录
+#  ────────────────────────────────────────────────────────────────────────────
+#  §0  依赖安装
+#  §1  主程序
+#  §2  模拟盘测试   test_demo/   — Demo API Key，不涉及真实资金
+#  §3  实盘测试     test_live/   — 实盘 API Key，部分测试涉及真实资金
+#  §4  账户工具     tools/
+#  §5  资金再平衡   rebalance/
+#  §6  配置文件说明
+#  §7  日志文件说明
+#
+################################################################################
 
-# ─── 依赖安装（首次） ────────────────────────────────────────────────────────
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §0  依赖安装（首次部署执行一次）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 pip install aiohttp websockets requests urllib3
 pip install orjson          # 可选，加快 JSON 解析
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  主程序
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §1  主程序
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# Demo 模式（LIVE_TRADING_ON=False，使用模拟盘 API Key，不产生真实交易）
+# Demo 模式（LIVE_TRADING_ON=False，使用 Demo API Key，不产生真实交易）
 python main.py
 
-# 实盘模式（使用实盘 API Key；启动顺序：只读预检 → 终端输入 YES → 下单验证 → 正式运行）
+# 实盘模式（LIVE_TRADING_ON=True；启动流程：只读预检 → 输入 YES → 下单验证 → 正式运行）
 python main.py --live
 
-# 仅启动 Tracker（只采集行情 & 检测信号，不下单，适合行情监控调试）
+# 仅启动 Tracker（采集行情 & 检测信号，不下单，适合调试行情）
 python -m tracker.run_tracker
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  模拟盘测试（test_demo/ — 使用 Demo API Key，不涉及真实资金）
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 注意：测试网标的为 BTC，部分交易所模拟盘功能受限
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §2  模拟盘测试   test_demo/
+#      使用 Demo API Key，不涉及任何真实资金
+#      注意：测试网标的为 BTC，部分交易所模拟盘功能受限
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# 一键运行所有模拟盘测试
+# 运行全部测试
 python -m test_demo.run_all
+python -m test_demo.run_all --ex okx          # 只跑某一所
 
-# 只跑某一所
-python -m test_demo.run_all --ex okx
-python -m test_demo.run_all --ex binance
-
-# ── 单项模拟盘测试
-python -m test_demo.test_balance            # 各所 USDT 可用余额
-python -m test_demo.test_positions          # 持仓 & 挂单查询
-python -m test_demo.test_cancel             # 限价单挂单 + 撤单（不成交）
-python -m test_demo.test_cancel --ex gate
-python -m test_demo.test_orders             # 最小市价单开仓 + 立即平仓
-python -m test_demo.test_orders --ex bitget
-python -m test_demo.test_transfer           # 期货 → 现货划转（默认 1 USDT）
+# 单项测试
+python -m test_demo.test_balance              # 各所 USDT 可用余额
+python -m test_demo.test_positions            # 持仓 & 挂单查询
+python -m test_demo.test_cancel               # 限价单挂单 + 撤单（不成交）
+python -m test_demo.test_cancel   --ex gate
+python -m test_demo.test_orders               # 最小市价单开仓 + 立即平仓
+python -m test_demo.test_orders   --ex bitget
+python -m test_demo.test_transfer             # 期货 → 现货划转（默认 1 USDT）
 python -m test_demo.test_transfer --ex okx --amount 5.0
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  实盘测试（test_live/ — 使用实盘 API Key，部分测试涉及真实资金）
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 标的：TRX 永续合约（各所最小下单量 < 1 USDT，手续费极低）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §3  实盘测试   test_live/
+#      使用实盘 API Key；标的：TRX 永续合约（最小下单量 < 1 USDT，手续费极低）
 #
-# 分组说明：
-#   [安全组] 只读/公开接口，不涉及任何资金操作，始终自动执行
-#   [资金组] 会产生真实委托或成交，需要加 --money 参数并逐步确认
-#   [划转组] 涉及账户间资金转移，需要加 --transfer 参数
+#  分组：
+#    [安全组]  只读 / 公开接口，无任何资金操作，始终自动执行
+#    [资金组]  产生真实委托或成交，需加 --money 参数并逐步确认   ⚠️
+#    [划转组]  账户间资金转移，需加 --transfer 参数              ⚠️
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# ── 套件方式运行
+# ── 套件运行
 
-# 只跑安全组（API 连通性、账户查询、订单薄、资金费率）
-python -m test_live.run_all
+python -m test_live.run_all                        # 仅安全组
+python -m test_live.run_all --money                # 安全组 + 资金组
+python -m test_live.run_all --money --transfer     # 安全组 + 资金组 + 划转组（干跑）
+python -m test_live.run_all --ex gate              # 只测某一所（安全组）
+python -m test_live.run_all --ex binance --money   # 只测某一所（含资金组）
 
-# 包含资金组（安全组 + 限价单撤单 + 最小市价单）
-python -m test_live.run_all --money
-
-# 包含划转组（在 --money 基础上再加划转测试，干跑模式）
-python -m test_live.run_all --money --transfer
-
-# 只测某一所
-python -m test_live.run_all --ex gate
-python -m test_live.run_all --ex binance --money
-
-# ── 单项实盘测试（安全组，无资金风险）
+# ── 单项测试：安全组（无资金风险）
 
 # [1] API 连通性：公开接口延迟 + API Key 签名验证 + TRX/BTC 价格查询
 python -m test_live.test_connectivity
 
 # [2] 账户信息：合约余额、现货余额、持仓、挂单（只读）
 python -m test_live.test_account
-python -m test_live.test_account --ex okx
+python -m test_live.test_account    --ex okx
 
-# [3] 订单薄：TRX 20档深度、买卖价差、滑点估算（公开接口）
+# [3] 订单薄：TRX 20 档深度、买卖价差、滑点估算（公开接口）
 python -m test_live.test_orderbook
-python -m test_live.test_orderbook --ex gate
+python -m test_live.test_orderbook  --ex gate
 
 # [4] 资金费率 & 合约规格：taker 费率、资金费率、60s 持仓成本估算
 python -m test_live.test_funding
-python -m test_live.test_funding --ex bitget
+python -m test_live.test_funding    --ex bitget
 
-# ── 单项实盘测试（资金组，⚠️ 涉及真实资金）
+# ── 单项测试：资金组（⚠️ 涉及真实资金）
 
-# [5] 限价单撤单：以市价×50% 挂限价买单（不会成交），确认后撤单
+# [5] 限价单撤单：以市价×50% 挂限价买单（不成交），确认后撤单
 #     风险：临时占用少量保证金（几秒），无成交风险
 python -m test_live.test_cancel
-python -m test_live.test_cancel --ex binance
+python -m test_live.test_cancel     --ex binance
 
 # [6] 最小市价单：买入最小量 TRX 并立即平仓
 #     费用：约 0.05–0.15 USDT/所（2×taker 手续费）
 python -m test_live.test_order
-python -m test_live.test_order --ex okx
+python -m test_live.test_order      --ex okx
 
-# [7] 合约→现货划转：默认干跑，--execute 才实际转账
-python -m test_live.test_transfer                           # 干跑（显示计划，不执行）
-python -m test_live.test_transfer --execute                 # 实际划转 10 USDT/所（需逐所确认）
+# [7] 合约 → 现货划转
+python -m test_live.test_transfer                              # 干跑（显示计划，不执行）
+python -m test_live.test_transfer --execute                    # 实际划转 10 USDT/所（逐所确认）
 python -m test_live.test_transfer --ex gate --execute --amount 10
 
-# 单独运行完整预检（与 main.py --live 启动前检查一致，便于单独排查）
+# 启动前完整预检（与 main.py --live 启动前一致，便于单独排查）
 python -m test_live.preflight
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  账户工具（tools/ 目录）
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §4  账户工具   tools/
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# 账户概览（合约余额、持仓、风控状态）
 python -m tools.check_account
-python -m tools.find_balance                 # 全所各钱包类型 + 理财 USDT 汇总（需 api_keys_live）
-python -m tools.close_naked_positions        # 查询并手动平掉单边敞口（crash 后清理用）
-python -m tools.sweep_to_futures --dry-run   # 现货 USDT → 期货（干跑）
-python -m tools.sweep_to_futures             # 实盘划转（需 api_keys_live）
-# 导出 trader/config 参数；本机 --save 生成 ref，服务器 --compare ref 逐项对比
+
+# 全所各钱包类型 + 理财 USDT 汇总
+python -m tools.find_balance
+
+# 单边敞口查询 & 手动平仓（crash 后清理用）
+python -m tools.close_naked_positions
+
+# 现货 USDT → 期货划转
+python -m tools.sweep_to_futures --dry-run    # 干跑（显示计划，不执行）
+python -m tools.sweep_to_futures              # 实际执行
+
+# 导出 trader/config 参数快照，用于本机/服务器参数对比
 python -m tools.dump_trader_config
-python -m tools.dump_trader_config --save trader_config.ref.txt
+python -m tools.dump_trader_config --save    trader_config.ref.txt
 python -m tools.dump_trader_config --compare trader_config.ref.txt
-python -m tools.cashflow                   # 最近 7 天，全部 4 所
+
+# 资金流水（默认最近 7 天，全部 4 所）
+python -m tools.cashflow
 python -m tools.cashflow --days 30
 python -m tools.cashflow --ex gate okx
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  资金再平衡（rebalance/ 目录）
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 触发条件（所有参数均为比例，见 trader/config.py）：
-#   REBALANCE_FLOOR_PCT=20%  — 某所现金 < 总现金×20% → 触发再平衡
-#   CASH_RATIO_MIN=30%       — 整体现金/权益 < 30% → 进入仅监控模式
-#   CASH_RATIO_RESUME=40%    — 整体现金/权益 > 40% → 退出仅监控模式（迟滞）
-# 实盘主程序（--live）自动每 4h 后台检查一次（RebalanceSupervisor）
-# 手动工具始终使用实盘 API Key（测试网不支持提现 API）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §5  资金再平衡   rebalance/
+#
+#  触发条件（参数见 trader/config.py）：
+#    REBALANCE_FLOOR_PCT = 20%  — 某所现金 < 总现金×20% → 触发再平衡
+#    CASH_RATIO_MIN      = 30%  — 整体现金/权益 < 30%   → 暂停开仓
+#    CASH_RATIO_RESUME   = 40%  — 整体现金/权益 > 40%   → 恢复开仓（迟滞）
+#
+#  实盘主程序（--live）每 4h 自动后台检查（RebalanceSupervisor）
+#  手动工具始终使用实盘 API Key（测试网不支持提现 API）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-# [1] 查看各交易所余额 + 再平衡/流动性状态（只读）
+# [1] 查看各所余额 + 再平衡 / 流动性状态（只读）
 python -m rebalance.check_balances
 
-# [2] 查看各交易所提现手续费 + 路径对比（只读）
-python -m rebalance.check_fees                          # 查询全部 4 所
-python -m rebalance.check_fees --ex gate                # 只查 gate
+# [2] 查看各所提现手续费 + 路径对比（只读）
+python -m rebalance.check_fees                 # 全部 4 所
+python -m rebalance.check_fees --ex gate       # 只查 gate
 
-# [3] 干跑：显示余额、触发判断、路径规划、提现计划（不执行任何操作）
+# [3] 干跑：显示余额、触发判断、路径规划、提现计划（不执行）
 python -m rebalance.run
 
-# [4] 实际执行：输入 YES 全局确认 + 每笔提现逐一确认
-#     注意：执行前确保主程序未在活跃开仓，或在低活跃时段运行
+# [4] 实际执行：全局 YES 确认 + 每笔提现逐一确认
+#     建议在主程序低活跃时段（无持仓）执行
 python -m rebalance.run --execute
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  配置文件说明
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ⚠️  以下文件已加入 .gitignore，不会上传到代码仓库
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §6  配置文件说明
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #
-# clients/api_keys_live.py     — 实盘 API Key（Binance/OKX/Gate/Bitget）
-#                                各所后台 IP 白名单：绑定当前 VPS 公网 IP
-# clients/api_keys_demo.py     — Demo / 测试网 API Key（同上四所）
-# clients/withdrawal_addresses.py — 各所提币目标地址（SOL/BSC/TRX/ETH 网络）
-# trader/config.py             — 交易参数（资金比例、止损阈值、超时、风控）
+#  ⚠️  已加入 .gitignore，不会提交
 #
-# ── 以下文件无密钥，可提交
-# clients/config.py            — 交易所 REST/WS 地址、分层配置、合约格式转换
-# tracker/config.py            — 监控标的数量、价差窗口、信号触发阈值
+#  clients/api_keys_live.py      — 实盘 API Key（Binance/OKX/Gate/Bitget）
+#                                  各所后台 IP 白名单：绑定当前 VPS 公网 IP
+#  clients/api_keys_demo.py      — Demo / 测试网 API Key（同上四所）
+#  clients/withdrawal_addresses.py — 各所提币目标地址（SOL/BSC/TRX/ETH 网络）
+#  trader/config.py              — 交易参数（资金比例、止损阈值、超时、风控）
+#
+#  ✓  无密钥，可提交
+#
+#  clients/config.py             — 交易所 REST/WS 地址、分层配置、合约格式转换
+#  tracker/config.py             — 监控标的数量、价差窗口、信号触发阈值
 
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  日志文件
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# logs/tracker.log          — Tracker 运行日志（价差采集、信号检测）
-# logs/main.log             — 主程序日志（开平仓、风控、异常）
-# logs/signals.csv          — 检测到的套利机会信号记录
-# logs/spread_snapshots.csv — 价差快照（1s 粒度）
-# logs/trades.csv           — 已执行的开/平仓记录 & PnL
-# logs/params.json          — 启动时的参数快照
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §7  日志文件说明
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #
-# tools/out/cashflow_*.csv  — tools.cashflow 导出结果
+#  logs/main.log              — 主程序日志（开平仓、风控、异常）
+#  logs/tracker.log           — Tracker 日志（价差采集、信号检测）
+#  logs/trades.csv            — 已执行开/平仓记录 & PnL
+#  logs/signals.csv           — 检测到的套利信号记录
+#  logs/spread_snapshots.csv  — 价差快照（1s 粒度）
+#  logs/params.json           — 启动时参数快照
 #
-# 服务器 SSH / git pull / 直传同步：见 server/SERVER_COMMANDS.txt
+#  tools/out/cashflow_*.csv   — tools.cashflow 导出结果
+#
+#  服务器 SSH / git pull / 文件同步：见 server/SERVER_COMMANDS.txt

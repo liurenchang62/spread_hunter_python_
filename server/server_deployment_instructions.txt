@@ -1,0 +1,211 @@
+################################################################################
+#  Spread Hunter — 新服务器部署指南
+#  适用场景：更换/新增 VPS，从零完成完整部署
+################################################################################
+#
+#  目录
+#  ────────────────────────────────────────────────────────────────────────────
+#  §0  服务器要求
+#  §1  SSH 登录 & 初始安全设置
+#  §2  克隆代码仓库
+#  §3  安装 Python 依赖
+#  §4  上传密钥与配置文件（本地 → 服务器）
+#  §5  设置文件权限
+#  §6  各交易所 API IP 白名单更新
+#  §7  启动前验证
+#  §8  正式启动实盘
+#  §9  迁移旧服务器（可选）
+#
+################################################################################
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §0  服务器要求
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#
+#  操作系统：Ubuntu 20.04+ 或 Debian 11+（推荐 Ubuntu 22.04）
+#  Python  ：3.10 或以上
+#  内存    ：≥ 512 MB（推荐 1 GB）
+#  网络    ：能直连 Binance/OKX/Gate/Bitget API（日本/新加坡/美国节点均可）
+#           ⚠️  不要使用中国大陆节点（各所 API 在大陆不可访问）
+#  磁盘    ：≥ 5 GB（日志按天轮转，长期运行不超过 2 GB）
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §1  SSH 登录 & 初始安全设置
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 登录新服务器（首次用密码，后续配置密钥）
+ssh root@<NEW_SERVER_IP>
+
+# ── 服务器上执行：查看公网 IP（后续填到各交易所 API 白名单）
+curl -s ifconfig.me
+
+# ── 更新系统 & 安装基础工具
+apt update && apt upgrade -y
+apt install -y git python3 python3-pip screen
+
+# ── 确认 Python 版本 ≥ 3.10
+python3 --version
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §2  克隆代码仓库
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 服务器上执行
+cd /root
+git clone https://github.com/liurenchang62/spread_hunter_python.git
+cd spread_hunter_python
+
+# 验证代码是最新的
+git log --oneline -5
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §3  安装 Python 依赖
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 服务器上执行
+pip3 install aiohttp websockets requests urllib3
+pip3 install orjson          # 可选，加快 JSON 解析
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §4  上传密钥与配置文件（本机 → 新服务器）
+#
+#  需要上传的文件（全部在 .gitignore，不在代码仓库中）：
+#    clients/api_keys_live.py      — 实盘 API Key
+#    clients/api_keys_demo.py      — Demo API Key
+#    clients/withdrawal_addresses.py — 各所提币地址
+#    trader/config.py              — 交易参数
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# ── 方法 A：使用同步脚本（推荐，自动识别所有 gitignored 文件）
+#    在本地项目根目录执行：
+
+pip install -r server/requirements.txt   # 首次安装 paramiko
+
+# 设置环境变量（Windows PowerShell）
+$env:SERVER_PASSWORD = "your_password"
+$env:SERVER_HOST     = "<NEW_SERVER_IP>"
+
+# 预览将要上传的文件
+python server/sync_to_server.py --dry-run
+
+# 执行上传
+python server/sync_to_server.py
+
+# ── 方法 B：逐文件 scp（本机执行，替换 <NEW_SERVER_IP>）
+
+scp D:\spread_hunter_python\trader\config.py                root@<NEW_SERVER_IP>:/root/spread_hunter_python/trader/
+scp D:\spread_hunter_python\clients\api_keys_live.py        root@<NEW_SERVER_IP>:/root/spread_hunter_python/clients/
+scp D:\spread_hunter_python\clients\api_keys_demo.py        root@<NEW_SERVER_IP>:/root/spread_hunter_python/clients/
+scp D:\spread_hunter_python\clients\withdrawal_addresses.py root@<NEW_SERVER_IP>:/root/spread_hunter_python/clients/
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §5  设置文件权限
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 服务器上执行（使用同步脚本上传的已自动处理，手动 scp 后需执行）
+cd /root/spread_hunter_python
+chmod 600 trader/config.py \
+          clients/api_keys_live.py \
+          clients/api_keys_demo.py \
+          clients/withdrawal_addresses.py
+
+# 验证
+ls -la clients/api_keys_live.py
+# 预期：-rw------- 1 root root ...
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §6  各交易所 API IP 白名单更新
+#
+#  ⚠️  这是最容易遗漏的步骤。不更新白名单会导致所有 API 请求被拒绝。
+#
+#  新服务器公网 IP 获取：curl -s ifconfig.me（服务器上执行）
+#
+#  各所后台入口：
+#    Binance  → 账户 → API 管理 → 编辑 → 限制访问 IP
+#    OKX      → 账户 → API → 编辑 → IP 白名单
+#    Gate     → 账户设置 → API Keys → 编辑 → 绑定 IP
+#    Bitget   → 个人中心 → API 管理 → 编辑 → IP 绑定
+#
+#  流程：
+#    1. 获取新服务器 IP
+#    2. 登录各所后台，将旧 IP 替换为新 IP（或追加新 IP）
+#    3. 保存，等待生效（通常立即生效，部分所需 1–2 分钟）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §7  启动前验证
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 服务器上执行（/root/spread_hunter_python 目录）
+
+# [1] API 连通性 + 签名验证（安全，只读）
+python3 -m test_live.test_connectivity
+
+# [2] 账户余额、持仓、挂单（只读）
+python3 -m test_live.test_account
+
+# [3] 资金费率 & 合约规格（只读）
+python3 -m test_live.test_funding
+
+# [4] 最小委托单验证（涉及真实资金，约 0.05–0.15 USDT/所）
+python3 -m test_live.test_order
+
+# [5] 完整启动前预检（与 main.py --live 启动检查一致）
+python3 -m test_live.preflight
+
+# 以上全部通过后再进行下一步
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §8  正式启动实盘
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 服务器上执行
+
+# 确认 trader/config.py 中 LIVE_TRADING_ON = True
+grep "LIVE_TRADING_ON" /root/spread_hunter_python/trader/config.py
+
+# 使用 screen 后台运行（SSH 断开后继续运行）
+screen -S spread_hunter
+cd /root/spread_hunter_python
+python3 main.py --live
+
+# 启动流程：只读预检 → 终端输入 YES → 下单验证 → 正式运行
+# 确认后按 Ctrl+A, D 脱离 screen（程序继续运行）
+
+# 重新连接 screen 查看日志
+screen -r spread_hunter
+
+# 查看实时日志（另开终端）
+tail -f /root/spread_hunter_python/logs/main.log
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §9  从旧服务器迁移（可选）
+#      旧服务器仍在运行时，先停止再迁移，避免双机同时下单
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# ── 步骤一：停止旧服务器上的主程序
+ssh root@<OLD_SERVER_IP>
+screen -r spread_hunter
+# 按 Ctrl+C 终止主程序，等待平仓（或已无持仓可直接停止）
+
+# ── 步骤二：确认各所无未平仓位
+python3 -m test_live.test_account     # 在旧服务器上确认持仓为空
+
+# ── 步骤三：更新各所 API IP 白名单（见 §6）
+#    将旧 IP 替换为新 IP
+
+# ── 步骤四：在新服务器上启动（见 §7–§8）
+
+# ── 步骤五：确认新服务器运行正常后，旧服务器可以关闭
+#    旧服务器上查看残留仓位（以防万一）
+python3 -m tools.check_account

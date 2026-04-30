@@ -1,54 +1,72 @@
-# ═══════════════════════════════════════════════════════════════
-#  Spread Hunter — 服务器操作手册
-#  VPS: root@45.76.202.248
-# ═══════════════════════════════════════════════════════════════
+################################################################################
+#  Spread Hunter — 服务器日常操作手册
+#  当前服务器：root@45.76.202.248
+#  项目路径  ：/root/spread_hunter_python
+################################################################################
+#
+#  目录
+#  ────────────────────────────────────────────────────────────────────────────
+#  §1  SSH 登录
+#  §2  服务器拉取最新代码
+#  §3  上传密钥与配置文件（本机 → 服务器）
+#  §4  单文件补传（scp）
+#
+################################################################################
 
 
-# ── 1. 登录服务器 ───────────────────────────────────────────────
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §1  SSH 登录
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 ssh root@45.76.202.248
 
+# 重新连接后台 screen（程序在后台运行中）
+screen -r spread_hunter
 
-# ── 2. 服务器拉取最新代码（GitHub）─────────────────────────────
-#  在服务器上执行：
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §2  服务器拉取最新代码（在服务器上执行）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 cd /root/spread_hunter_python && git pull origin main
 
-# 强制同步（丢弃服务器本地修改，慎用）：
+# 强制同步（丢弃服务器本地修改，慎用）
 # git fetch origin && git reset --hard origin/main
 
 
-# ── 3. 本地上传 gitignored 文件到服务器 ─────────────────────────
-#  涵盖：trader/config.py · clients/api_keys*.py
-#        clients/withdrawal_addresses.py · env/ · trader_config.ref.txt
-#
-#  前提：设置环境变量 SERVER_PASSWORD（Windows 系统变量或当前会话）
-#        pip install -r server/requirements.txt（首次）
-#
-#  在仓库根目录执行：
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §3  上传密钥与配置文件（在本机执行）
+#      涵盖：trader/config.py · clients/api_keys*.py
+#            clients/withdrawal_addresses.py · env/
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+# 首次安装上传工具依赖
+pip install -r server/requirements.txt
+
+# 设置服务器密码（Windows PowerShell，每次开新会话需重新设置）
+$env:SERVER_PASSWORD = "your_password"
+
+# 预览将要上传的文件（不实际执行）
+python server/sync_to_server.py --dry-run
+
+# 执行上传（自动处理文件权限）
 python server/sync_to_server.py
 
-# 预览（不实际上传）：
-# python server/sync_to_server.py --dry-run
-
-# 备选（需 SSH 密钥免密登录，无需 SERVER_PASSWORD）：
+# ── 备选：SSH 密钥免密登录（无需 SERVER_PASSWORD）
 # powershell -ExecutionPolicy Bypass -File .\server\sync_secrets_to_server.ps1
 
 
-# ═══════════════════════════════════════════════════════════════
-#  单项 scp（只补某一文件时用）
-# ═══════════════════════════════════════════════════════════════
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  §4  单文件补传（在本机执行，只需更新某一文件时用）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 scp D:\spread_hunter_python\trader\config.py                  root@45.76.202.248:/root/spread_hunter_python/trader/
 scp D:\spread_hunter_python\clients\api_keys_live.py          root@45.76.202.248:/root/spread_hunter_python/clients/
 scp D:\spread_hunter_python\clients\api_keys_demo.py          root@45.76.202.248:/root/spread_hunter_python/clients/
 scp D:\spread_hunter_python\clients\withdrawal_addresses.py   root@45.76.202.248:/root/spread_hunter_python/clients/
-scp -r D:\spread_hunter_python\env                            root@45.76.202.248:/root/spread_hunter_python/
 
-# 上传后在服务器执行权限修复：
+# 上传后在服务器上修复权限（如未自动处理）
 # chmod 600 /root/spread_hunter_python/trader/config.py \
-#           /root/spread_hunter_python/clients/api_keys*.py \
+#           /root/spread_hunter_python/clients/api_keys_live.py \
+#           /root/spread_hunter_python/clients/api_keys_demo.py \
 #           /root/spread_hunter_python/clients/withdrawal_addresses.py
-# chmod 700 /root/spread_hunter_python/env
-# chmod 600 /root/spread_hunter_python/env/.env 2>/dev/null
