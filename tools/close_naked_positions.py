@@ -148,7 +148,12 @@ async def _main(dry_run: bool):
             bg_s = f"{bg_p['side']} {bg_p['size']}" if bg_p else "—"
 
             if bn_p and bg_p:
-                status = f"{G}已对冲{W}"
+                # 检查数量是否匹配（偏差 >20% 视为不平衡）
+                ratio = bn_p["size"] / bg_p["size"] if bg_p["size"] > 0 else 999
+                if ratio < 0.8 or ratio > 1.2:
+                    status = f"{Y}⚠ 数量不匹配 bn={bn_p['size']} bg={bg_p['size']}{W}"
+                else:
+                    status = f"{G}已对冲{W}"
             elif bn_p:
                 status = f"{R}裸敞口(Binance){W}"
                 naked.append(("binance", bn_p))
