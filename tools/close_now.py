@@ -38,6 +38,18 @@ async def main():
     bg_live = BitgetClient(live=True,  keys=keys)
     bg_pap  = BitgetClient(live=False, keys=keys)
 
+    # 先查期货账户详情
+    path = "/api/v2/mix/account/accounts?productType=USDT-FUTURES"
+    sess = await bg_live._sess()
+    async with sess.get(f"{bg_live.base}{path}",
+                        headers=bg_live._sign("GET", path), ssl=False) as r:
+        acc = await r.json()
+    print("=== Bitget 期货账户 ===")
+    for a in (acc.get("data") or []):
+        print(f"  available={a.get('available')} frozen={a.get('frozen')} "
+              f"unrealizedPL={a.get('unrealizedPL')} equity={a.get('equity')} "
+              f"isolatedFrozen={a.get('isolatedFrozen')}")
+
     try:
         live_pos = await query_positions(bg_live)
         pap_pos  = await query_positions(bg_pap)
