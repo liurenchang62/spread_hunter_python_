@@ -567,6 +567,13 @@ class Trader:
                     continue
                 pnl_pct = self._compute_pnl_pct(pos, sml_tick.mid, big_tick.mid)
                 reason = self._check_exit_reason(pos, pnl_pct)
+                logger.info(
+                    f"[sweep] {pos.id[:8]} {pos.symbol} {pos.big_exchange}/{pos.small_exchange}"
+                    f" dir={pos.direction} hold={pos.hold_seconds:.0f}s"
+                    f" pnl={pnl_pct:+.3f}%"
+                    f" big={big_tick.mid:.5g} small={sml_tick.mid:.5g}"
+                    f" → {'EXIT:'+reason if reason else 'hold'}"
+                )
                 if reason:
                     self._schedule_exit(pos, pnl_pct, reason)
 
