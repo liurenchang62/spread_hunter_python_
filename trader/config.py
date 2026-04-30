@@ -28,7 +28,7 @@ MAX_SYMBOL_NOTIONAL_PCT  = 0.30 # 单标的合计名义价值 <= 总权益 × �
 # 每次启动的会话开仓上限（用于前期测试）
 # None = 不限制，由流动性/仓位限制等正常逻辑控制
 # N    = 本次启动累计开仓达到 N 笔后停止新开仓；全部平仓后进入纯监控模式
-SESSION_MAX_ENTRIES: int | None = 1
+SESSION_MAX_ENTRIES: int | None = None
 
 # ─── 开仓条件 ─────────────────────────────────────────────────────────────────
 MIN_ANOMALY_TO_OPEN_PCT = 0.5  # 开仓最低异常阈值（%），建议 >= tracker 的 ANOMALY_MIN_PCT
