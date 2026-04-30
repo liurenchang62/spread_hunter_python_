@@ -61,6 +61,21 @@ async def main():
             for p in live_pos:
                 to_close.append((bg_live, p))
 
+        # 查未成交订单
+        print("\n=== 未成交订单 ===")
+        for bg, p in to_close:
+            sym = p["symbol"]
+            path = f"/api/v2/mix/order/orders-pending?productType=USDT-FUTURES&symbol={sym}"
+            sess = await bg._sess()
+            async with sess.get(f"{bg.base}{path}", headers=bg._sign("GET", path), ssl=False) as r:
+                info = await r.json()
+            orders = (info.get("data") or {}).get("entrustedList") or []
+            if orders:
+                for o in orders:
+                    print(f"  {sym}: orderId={o.get('orderId')} side={o.get('side')} tradeSide={o.get('tradeSide')} size={o.get('size')} status={o.get('status')}")
+            else:
+                print(f"  {sym}: 无未成交订单")
+
         # 查合约规格（步长/最小下单量）
         print("\n=== 合约规格 ===")
         for bg, p in to_close:
