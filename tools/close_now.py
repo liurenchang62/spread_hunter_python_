@@ -61,6 +61,17 @@ async def main():
             for p in live_pos:
                 to_close.append((bg_live, p))
 
+        # 查账户持仓模式
+        print("\n=== 账户模式 ===")
+        path_mode = "/api/v2/mix/account/accounts?productType=USDT-FUTURES"
+        sess = await bg_live._sess()
+        async with sess.get(f"{bg_live.base}{path_mode}",
+                            headers=bg_live._sign("GET", path_mode), ssl=False) as r:
+            mode_data = await r.json()
+        for acc in (mode_data.get("data") or []):
+            print(f"  marginCoin={acc.get('marginCoin')} posMode={acc.get('posMode')} "
+                  f"autoMargin={acc.get('autoMargin')} available={acc.get('available')}")
+
         # 查未成交订单
         print("\n=== 未成交订单 ===")
         for bg, p in to_close:
