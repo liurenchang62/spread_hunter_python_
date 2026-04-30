@@ -1583,13 +1583,14 @@ class BitgetClient(BaseClient):
                 raw = data.get("data") or {}
                 items = raw.get("resultList") or [] if isinstance(raw, dict) else (raw if isinstance(raw, list) else [])
                 for item in items:
-                    amt = float(item.get("holdAmount", 0))
+                    amt_raw = item.get("holdAmount", "0")
+                    amt = float(amt_raw)
                     if amt < 0.01:
                         continue
                     order_id = item.get("orderId", "")
                     period_type = item.get("periodType", "")
-                    logger.debug(f"[bitget] earn item: orderId={order_id} periodType={period_type!r} holdAmount={amt}")
-                    body_d: dict = {"orderId": order_id, "amount": str(amt)}
+                    logger.info(f"[bitget] earn item: orderId={order_id} periodType={period_type!r} holdAmount={amt_raw!r}")
+                    body_d: dict = {"orderId": order_id, "amount": amt_raw}
                     if period_type:
                         body_d["periodType"] = period_type
                     body = json.dumps(body_d)
