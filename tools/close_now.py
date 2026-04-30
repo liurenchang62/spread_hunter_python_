@@ -61,6 +61,17 @@ async def main():
             for p in live_pos:
                 to_close.append((bg_live, p))
 
+        # 查合约规格（步长/最小下单量）
+        print("\n=== 合约规格 ===")
+        for bg, p in to_close:
+            sym = p["symbol"]
+            path = f"/api/v2/mix/market/contracts?productType=USDT-FUTURES&symbol={sym}"
+            sess = await bg._sess()
+            async with sess.get(f"{bg.base}{path}", ssl=False) as r:
+                info = await r.json()
+            for c in (info.get("data") or []):
+                print(f"  {sym}: sizeMultiplier={c.get('sizeMultiplier')} minTradeNum={c.get('minTradeNum')} volumePlace={c.get('volumePlace')} raw={c}")
+
         for bg, p in to_close:
             mode = "PAP" if not bg.live else "LIVE"
             print(f"平仓 [{mode}] {p['symbol']} {p['holdSide']} ...", end=" ", flush=True)
