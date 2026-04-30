@@ -27,11 +27,6 @@ async def main():
         for p in positions:
             print(f"  {p['symbol']}  {p['holdSide']}  total={p['total']}")
 
-        # 用 place_order reduce_only=True 平仓（走已验证的代码路径）
-        from trader.market_info import MarketInfo
-        mi = MarketInfo()
-        await mi.refresh_all(list(bg._sess.__self__ if hasattr(bg._sess, '__self__') else []))
-
         for p in positions:
             sym = p["symbol"]
             hold_side = p["holdSide"]   # "long" or "short"
