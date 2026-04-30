@@ -123,69 +123,70 @@ async def _main(dry_run: bool):
     print(f"{C}{B}{'═'*60}{W}\n")
 
     try:
-        bn_pos, bg_pos = await asyncio.gather(
-            _get_binance_positions(bn),
-            _get_bitget_positions(bg),
-        )
-    except Exception as e:
-        print(f"{R}查询失败: {e}{W}")
-        return
-
-    bn_map = {p["base"]: p for p in bn_pos}
-    bg_map = {p["base"]: p for p in bg_pos}
-
-    all_bases = set(bn_map) | set(bg_map)
-
-    print(f"  {'Base':<12} {'Binance':^20} {'Bitget':^20} {'状态'}")
-    print(f"  {'-'*12} {'-'*20} {'-'*20} {'-'*10}")
-
-    naked = []
-    for base in sorted(all_bases):
-        bn_p = bn_map.get(base)
-        bg_p = bg_map.get(base)
-        bn_s = f"{bn_p['side']} {bn_p['size']}" if bn_p else "—"
-        bg_s = f"{bg_p['side']} {bg_p['size']}" if bg_p else "—"
-
-        if bn_p and bg_p:
-            status = f"{G}已对冲{W}"
-        elif bn_p:
-            status = f"{R}裸敞口(Binance){W}"
-            naked.append(("binance", bn_p))
-        elif bg_p:
-            status = f"{R}裸敞口(Bitget){W}"
-            naked.append(("bitget", bg_p))
-
-        print(f"  {base:<12} {bn_s:^20} {bg_s:^20} {status}")
-
-    if not naked:
-        print(f"\n  {G}无裸敞口，无需处理。{W}\n")
-        return
-
-    print(f"\n  共发现 {len(naked)} 笔裸敞口\n")
-
-    if dry_run:
-        print(f"  {Y}[DRY RUN] 以上仓位将被市价平仓，实际未执行。{W}\n")
-        return
-
-    for ex, pos in naked:
-        sym  = pos["sym"]
-        side = pos["side"]
-        size = pos["size"]
-        print(f"  平仓 {ex} {sym} {side} size={size} ...", end=" ", flush=True)
         try:
-            if ex == "binance":
-                resp = await _close_binance(bn, sym, side, size)
-            else:
-                resp = await _close_bitget(bg, sym, side, size)
-            code = resp.get("code", resp.get("status", "?"))
-            if str(code) in ("00000", "200") or resp.get("orderId"):
-                print(f"{G}成功 {resp}{W}")
-            else:
-                print(f"{R}失败 {resp}{W}")
+            bn_pos, bg_pos = await asyncio.gather(
+                _get_binance_positions(bn),
+                _get_bitget_positions(bg),
+            )
         except Exception as e:
-            print(f"{R}异常: {e}{W}")
+            print(f"{R}查询失败: {e}{W}")
+            return
 
-    await asyncio.gather(bn.close(), bg.close())
+        bn_map = {p["base"]: p for p in bn_pos}
+        bg_map = {p["base"]: p for p in bg_pos}
+
+        all_bases = set(bn_map) | set(bg_map)
+
+        print(f"  {'Base':<12} {'Binance':^20} {'Bitget':^20} {'状态'}")
+        print(f"  {'-'*12} {'-'*20} {'-'*20} {'-'*10}")
+
+        naked = []
+        for base in sorted(all_bases):
+            bn_p = bn_map.get(base)
+            bg_p = bg_map.get(base)
+            bn_s = f"{bn_p['side']} {bn_p['size']}" if bn_p else "—"
+            bg_s = f"{bg_p['side']} {bg_p['size']}" if bg_p else "—"
+
+            if bn_p and bg_p:
+                status = f"{G}已对冲{W}"
+            elif bn_p:
+                status = f"{R}裸敞口(Binance){W}"
+                naked.append(("binance", bn_p))
+            elif bg_p:
+                status = f"{R}裸敞口(Bitget){W}"
+                naked.append(("bitget", bg_p))
+
+            print(f"  {base:<12} {bn_s:^20} {bg_s:^20} {status}")
+
+        if not naked:
+            print(f"\n  {G}无裸敞口，无需处理。{W}\n")
+            return
+
+        print(f"\n  共发现 {len(naked)} 笔裸敞口\n")
+
+        if dry_run:
+            print(f"  {Y}[DRY RUN] 以上仓位将被市价平仓，实际未执行。{W}\n")
+            return
+
+        for ex, pos in naked:
+            sym  = pos["sym"]
+            side = pos["side"]
+            size = pos["size"]
+            print(f"  平仓 {ex} {sym} {side} size={size} ...", end=" ", flush=True)
+            try:
+                if ex == "binance":
+                    resp = await _close_binance(bn, sym, side, size)
+                else:
+                    resp = await _close_bitget(bg, sym, side, size)
+                code = resp.get("code", resp.get("status", "?"))
+                if str(code) in ("00000", "200") or resp.get("orderId"):
+                    print(f"{G}成功 {resp}{W}")
+                else:
+                    print(f"{R}失败 {resp}{W}")
+            except Exception as e:
+                print(f"{R}异常: {e}{W}")
+    finally:
+        await asyncio.gather(bn.close(), bg.close(), return_exceptions=True)
     print()
 
 
