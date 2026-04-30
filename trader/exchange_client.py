@@ -1587,7 +1587,11 @@ class BitgetClient(BaseClient):
                     if amt < 0.01:
                         continue
                     order_id = item.get("orderId", "")
-                    body_d = {"orderId": order_id}
+                    period_type = item.get("periodType", "")
+                    logger.debug(f"[bitget] earn item: orderId={order_id} periodType={period_type!r} holdAmount={amt}")
+                    body_d: dict = {"orderId": order_id}
+                    if period_type:
+                        body_d["periodType"] = period_type
                     body = json.dumps(body_d)
                     rpath = "/api/v2/earn/savings/redeem"
                     async with sess.post(
