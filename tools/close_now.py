@@ -23,12 +23,15 @@ async def main():
                              params=params, headers=headers, ssl=False) as r:
             return await r.json()
 
-    # Bitget 平仓：多头用 sell close
-    async def bg_close(sym, qty):
+    # Bitget 平仓：多头用 sell close，isolated 模式需要 holdSide
+    async def bg_close(sym, hold_side, qty):
         import json
+        close_side = "buy" if hold_side == "short" else "sell"
+        size_str = str(int(qty)) if qty == int(qty) else str(qty)
         body = json.dumps({"symbol": sym, "productType": "USDT-FUTURES",
                            "marginMode": "isolated", "marginCoin": "USDT",
-                           "size": str(int(qty)) if qty == int(qty) else str(qty), "side": "sell",
+                           "size": size_str, "side": close_side,
+                           "holdSide": hold_side,
                            "tradeSide": "close", "orderType": "market"})
         path = "/api/v2/mix/order/place-order"
         sess = await bg._sess()
@@ -52,10 +55,9 @@ async def main():
                 if float(p.get("total", 0)) > 0]
 
     for sym, side, size in to_close:
-        close_side = "buy" if side == "short" else "sell"
-        print(f"平仓 Bitget {sym} {side} size={size} ...", end=" ", flush=True)
+        print(f"平仓 Bitget {sym} {side} size={int(size) if size==int(size) else size} ...", end=" ", flush=True)
         try:
-            r = await bg_close(sym, size)
+            r = await bg_close(sym, side, size)
             ok = r.get("data") or str(r.get("code","")) == "00000"
             print("✓" if ok else f"✗ {r}")
         except Exception as e:
