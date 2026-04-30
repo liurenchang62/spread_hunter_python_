@@ -79,17 +79,20 @@ async def _sweep_spot_to_futures():
             if isinstance(amt, float) and amt > 0.01:
                 logger.info(f"[main] {ex} 理财赎回 {amt:.2f}U")
                 any_redeemed = True
+            elif isinstance(amt, float):
+                logger.info(f"[main] {ex} 无理财持仓，跳过赎回")
             elif isinstance(amt, Exception):
                 logger.warning(f"[main] {ex} 理财赎回异常: {amt}")
         if any_redeemed:
-            await asyncio.sleep(3)  # 等待赎回到账
+            logger.info("[main] 等待赎回到账（8s）…")
+            await asyncio.sleep(8)  # 给足时间让各所结算
 
         # Step 2: 现货→期货划转
         for ex, client in clients.items():
             try:
                 spot = await client.get_spot_balance()
                 if spot < MIN_SWEEP:
-                    logger.debug(f"[main] {ex} 现货余额 {spot:.2f}U，无需划转")
+                    logger.info(f"[main] {ex} 现货余额 {spot:.2f}U，无需划转")
                     continue
                 ok = await client.transfer_to_futures(spot)
                 if ok:

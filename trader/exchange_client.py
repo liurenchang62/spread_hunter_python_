@@ -1496,7 +1496,7 @@ class BitgetClient(BaseClient):
         # Bitget：期货账户 → 现货账户
         body_d = {
             "fromType": "usdt_futures", "toType": "spot",
-            "amount": str(amount), "coin": "USDT",
+            "amount": f"{amount:.2f}", "coin": "USDT",
         }
         body = json.dumps(body_d)
         path = "/api/v2/spot/wallet/transfer"
@@ -1513,7 +1513,7 @@ class BitgetClient(BaseClient):
         # Bitget：现货账户 → 期货账户
         body_d = {
             "fromType": "spot", "toType": "usdt_futures",
-            "amount": str(amount), "coin": "USDT",
+            "amount": f"{amount:.2f}", "coin": "USDT",
         }
         body = json.dumps(body_d)
         path = "/api/v2/spot/wallet/transfer"
