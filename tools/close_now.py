@@ -31,13 +31,15 @@ async def main():
             # 取当前市价作为 ref_price
             ref_price  = float(p.get("openPriceAvg") or p.get("markPrice") or 1.0)
 
-            print(f"平仓 {sym} {hold_side} size={size} ...", end=" ", flush=True)
+            print(f"平仓 {sym} {hold_side} size={size_str} marginMode={p.get('marginMode')} ...", end=" ", flush=True)
             # 不用 tradeSide:close，直接 market sell（one-way 模式会净仓）
             import json
             size_str = str(int(size)) if size == int(size) else str(size)
+            margin_mode = p.get("marginMode", "isolated")  # 用查询返回的值
             body_d = {"symbol": sym, "productType": "USDT-FUTURES",
-                      "marginCoin": "USDT", "size": size_str,
-                      "side": close_side, "tradeSide": "close", "orderType": "market"}
+                      "marginMode": margin_mode, "marginCoin": "USDT",
+                      "size": size_str, "side": close_side,
+                      "tradeSide": "close", "orderType": "market"}
             body = json.dumps(body_d)
             path2 = "/api/v2/mix/order/place-order"
             sess2 = await bg._sess()
