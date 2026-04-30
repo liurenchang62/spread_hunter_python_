@@ -111,19 +111,23 @@ async def main():
                 print(f"  {sym}: sizeMultiplier={c.get('sizeMultiplier')} minTradeNum={c.get('minTradeNum')} volumePlace={c.get('volumePlace')} raw={c}")
 
         for bg, p in to_close:
-            mode = "PAP" if not bg.live else "LIVE"
-            # 先试平1个，确认API可用
-            print(f"测试平1个 [{mode}] {p['symbol']} {p['holdSide']} ...", end=" ", flush=True)
-            res = await close_position(bg, p, size_override=1)
-            ok = str(res.get('code','')) == '00000'
-            print(f"{'✓' if ok else '✗'} {res}")
-            if ok:
-                # 成功了再平剩余
-                remain = float(p["total"]) - 1
-                if remain > 0:
-                    print(f"平仓剩余 {remain} ...", end=" ", flush=True)
-                    res2 = await close_position(bg, p, size_override=remain)
-                    print(f"{'✓' if str(res2.get('code',''))=='00000' else '✗'} {res2}")
+            sym = p["symbol"]
+            size = float(p["total"])
+            size_str = str(int(size)) if size == int(size) else str(size)
+            # 用 tradeSide:open + side:sell 在单向模式下净仓（最后手段）
+            body_d = {"symbol": sym, "productType": "USDT-FUTURES",
+                      "marginMode": p.get("marginMode", "isolated"), "marginCoin": "USDT",
+                      "size": size_str, "side": "sell",
+                      "tradeSide": "open", "orderType": "market"}
+            body = json.dumps(body_d)
+            path2 = "/api/v2/mix/order/place-order"
+            sess2 = await bg._sess()
+            print(f"净仓 {sym} sell open size={size_str} ...", end=" ", flush=True)
+            async with sess2.post(f"{bg.base}{path2}",
+                                  headers=bg._sign("POST", path2, body),
+                                  data=body, ssl=False) as r2:
+                res = await r2.json()
+            print(f"{'✓' if str(res.get('code',''))=='00000' else '✗'} {res}")
 
     finally:
         await asyncio.gather(bg_live.close(), bg_pap.close(), return_exceptions=True)
