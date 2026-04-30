@@ -29,6 +29,7 @@ main.py                     主入口：启动时自动赎回理财→划转到�
 │   ├── trader.py           主控制器：开仓 / 平仓 / 超时 / 资金费退出
 │   ├── exchange_client.py  4所 REST 客户端（下单 / 余额 / 划转 / 赎回理财）
 │   ├── risk.py             风控：日止损 / 止损当日停开 / 余额刷新
+│   ├── feishu_push.py      飞书推送（实盘可选，见下方「飞书通知」）
 │   ├── cost_model.py       成本评估：价差收益 - 手续费 - 滑点 = 净利润
 │   ├── market_info.py      合约规格 + 资金费率（每 4h 刷新）
 │   └── config.py           ← 所有交易参数（见下方参数说明）
@@ -183,6 +184,14 @@ python main.py
 # 4. 启动（主网实盘，需将 config.py 中 LIVE_TRADING_ON = True）
 python main.py --live
 ```
+
+### 飞书通知（可选）
+
+与参考项目 **同一机器人**（代码内默认 Webhook / `Authorization` 与 `cross_platform_arbitrage_system_livetrading` 的 `feishu_push.rs` 一致）。**仅 `python main.py --live` 主网实盘会推送**；`python main.py` Demo/测试网 **不推送**。
+
+推送正文带 `【机器人】` 与 **【价差策略】Spread Hunter** 标识。事件：**开始交易**、**开仓**、**平仓**、**平仓单腿失败告警**。
+
+可通过环境变量覆盖默认值（例如换群或轮换密钥）：`FEISHU_WEBHOOK`、`FEISHU_BOT_AUTHORIZATION`。
 
 ---
 

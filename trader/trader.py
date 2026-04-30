@@ -53,6 +53,7 @@ MAX_SYMBOL_NOTIONAL_PCT = getattr(_trader_cfg, "MAX_SYMBOL_NOTIONAL_PCT", 0.0)
 # 与旧版仅复制 config.example 的部署兼容（未定义时使用安全默认）
 LEVERAGE = getattr(_trader_cfg, "LEVERAGE", 1)
 SESSION_MAX_ENTRIES = getattr(_trader_cfg, "SESSION_MAX_ENTRIES", None)
+from trader import feishu_push
 from trader.cost_model import evaluate as cost_evaluate
 from trader.exchange_client import build_clients, OrderResult
 from trader.market_info import MarketInfo, refresh_market_info
@@ -135,6 +136,10 @@ class Trader:
         await self.risk.start()
 
         logger.info("[trader] 开始处理信号…")
+        await feishu_push.push_text_async(
+            feishu_push.format_trading_started(tuple(sorted(self.clients.keys()))),
+            live=_trader_cfg.LIVE_TRADING_ON,
+        )
         try:
             await asyncio.gather(
                 self._timeout_loop(),
@@ -441,6 +446,10 @@ class Trader:
             f"[trader] 开仓成功 {pos.id} | small@{small_res.fill_price:.4f}"
             f" big@{big_res.fill_price:.4f}"
         )
+        await feishu_push.push_text_async(
+            feishu_push.format_open_position(pos, ev.anomaly_pct),
+            live=_trader_cfg.LIVE_TRADING_ON,
+        )
 
     # ─── 平仓执行 ─────────────────────────────────────────────────────────────
 
@@ -499,6 +508,10 @@ class Trader:
                 f"[trader] ⚠️ 平仓单腿失败 {pos.id} | 交易所={failed_ex}"
                 f" err={failed_err} | 请手动检查该所是否有残留敞口！"
             )
+            await feishu_push.push_text_async(
+                feishu_push.format_close_leg_failed(pos, failed_ex, str(failed_err)),
+                live=_trader_cfg.LIVE_TRADING_ON,
+            )
             # 继续执行 close_position（从追踪中移除，防止重试使问题恶化）
 
         notional = pos.small_leg.size_usdt + pos.big_leg.size_usdt
@@ -513,6 +526,10 @@ class Trader:
             logger.info(
                 f"[trader] 平仓完成 {pos.id} | pnl={closed.pnl_usdt:+.4f} USDT"
                 f" | 累计PnL={self._total_pnl:+.4f} USDT"
+            )
+            await feishu_push.push_text_async(
+                feishu_push.format_close_position(closed, self._total_pnl),
+                live=_trader_cfg.LIVE_TRADING_ON,
             )
             # 止损触发 → 当天不再开新仓
             if reason == "stop_loss":
