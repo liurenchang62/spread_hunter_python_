@@ -112,17 +112,19 @@ async def main():
 
         for bg, p in to_close:
             sym = p["symbol"]
+            hold_side = p["holdSide"]
             size = float(p["total"])
             size_str = str(int(size)) if size == int(size) else str(size)
-            # 用 tradeSide:open + side:sell 在单向模式下净仓（最后手段）
+            close_side = "sell" if hold_side == "long" else "buy"
+            # 双向模式需要 holdSide
             body_d = {"symbol": sym, "productType": "USDT-FUTURES",
                       "marginMode": p.get("marginMode", "isolated"), "marginCoin": "USDT",
-                      "size": size_str, "side": "sell",
-                      "tradeSide": "open", "orderType": "market"}
+                      "size": size_str, "side": close_side, "holdSide": hold_side,
+                      "tradeSide": "close", "orderType": "market"}
             body = json.dumps(body_d)
             path2 = "/api/v2/mix/order/place-order"
             sess2 = await bg._sess()
-            print(f"净仓 {sym} sell open size={size_str} ...", end=" ", flush=True)
+            print(f"平仓 {sym} {hold_side} size={size_str} ...", end=" ", flush=True)
             async with sess2.post(f"{bg.base}{path2}",
                                   headers=bg._sign("POST", path2, body),
                                   data=body, ssl=False) as r2:
