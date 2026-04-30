@@ -101,6 +101,7 @@ class Trader:
         self._n_opened  = 0
         self._n_closed  = 0
         self._total_pnl = 0.0
+        self._close_fail_counts: dict[str, int] = {}   # pos_id → 累计双腿失败次数
 
         # 会话开仓上限（SESSION_MAX_ENTRIES）
         self._session_cap_reached = False   # 累计开仓已达上限，不再接受新开仓
@@ -477,17 +478,30 @@ class Trader:
         )
         small_res, big_res = await asyncio.gather(small_task, big_task)
 
+        # 平仓失败不计入风控连续失败（避免冷却误触发）
         self.risk.on_order_placed(pos.small_exchange)
         self.risk.on_order_placed(pos.big_exchange)
-        self.risk.on_order_result(small_res.success)
-        self.risk.on_order_result(big_res.success)
 
         if not small_res.success and not big_res.success:
-            # 双腿均失败：保留 closing 状态，由 _timeout_loop / _position_sweep_loop 重试
-            logger.warning(
-                f"[trader] 平仓双腿失败 {pos.id} | 保留closing待重试"
-                f" | small_err={small_res.error} | big_err={big_res.error}"
-            )
+            fails = self._close_fail_counts.get(pos.id, 0) + 1
+            self._close_fail_counts[pos.id] = fails
+            MAX_CLOSE_RETRIES = 8
+            if fails >= MAX_CLOSE_RETRIES:
+                logger.critical(
+                    f"[trader] ⚠️ 平仓重试 {fails} 次仍失败，强制移除 {pos.id}"
+                    f" | small_err={small_res.error} | big_err={big_res.error}"
+                    f" | 请手动确认 {pos.small_exchange}/{pos.big_exchange} 上 {pos.symbol} 无残留敞口"
+                )
+                self._close_fail_counts.pop(pos.id, None)
+                self.pm.close_position(
+                    pos_id=pos.id, close_pnl_pct=pnl_pct, reason="force_abandon",
+                    small_close_result=None, big_close_result=None,
+                )
+            else:
+                logger.warning(
+                    f"[trader] 平仓双腿失败 {pos.id} ({fails}/{MAX_CLOSE_RETRIES})"
+                    f" | small_err={small_res.error} | big_err={big_res.error}"
+                )
             return
 
         if not small_res.success or not big_res.success:
@@ -510,6 +524,7 @@ class Trader:
             pos_id=pos.id, close_pnl_pct=pnl_pct, reason=reason,
             small_close_result=small_res, big_close_result=big_res,
         )
+        self._close_fail_counts.pop(pos.id, None)
         if closed:
             self._n_closed  += 1
             self._total_pnl += closed.pnl_usdt
