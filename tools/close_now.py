@@ -37,16 +37,26 @@ async def main():
                              data=body, ssl=False) as r:
             return await r.json()
 
-    jobs = [
-        ("Bitget",  "BSBUSDT", 32,  bg_close),
-        ("Bitget",  "UBUSDT",  96,  bg_close),
-    ]
+    # 先查询 Bitget 实际持仓，打印原始数据
+    path = "/api/v2/mix/position/all-position?productType=USDT-FUTURES&marginCoin=USDT"
+    sess = await bg._sess()
+    async with sess.get(f"{bg.base}{path}", headers=bg._sign("GET", path), ssl=False) as r:
+        raw = await r.json()
+    print("=== Bitget 原始持仓 ===")
+    for p in (raw.get("data") or []):
+        print(f"  symbol={p.get('symbol')}  holdSide={p.get('holdSide')}  total={p.get('total')}  marginMode={p.get('marginMode')}")
 
-    for ex, sym, qty, fn in jobs:
-        print(f"平仓 {ex} {sym} qty={qty} ...", end=" ", flush=True)
+    # 用实际 symbol 平仓
+    to_close = [(p.get("symbol"), p.get("holdSide"), float(p.get("total", 0)))
+                for p in (raw.get("data") or [])
+                if float(p.get("total", 0)) > 0]
+
+    for sym, side, size in to_close:
+        close_side = "buy" if side == "short" else "sell"
+        print(f"平仓 Bitget {sym} {side} size={size} ...", end=" ", flush=True)
         try:
-            r = await fn(sym, qty)
-            ok = r.get("orderId") or str(r.get("code","")) == "00000"
+            r = await bg_close(sym, size)
+            ok = r.get("data") or str(r.get("code","")) == "00000"
             print("✓" if ok else f"✗ {r}")
         except Exception as e:
             print(f"异常: {e}")
