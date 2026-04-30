@@ -12,10 +12,10 @@ async def query_positions(bg):
         data = await r.json()
     return [p for p in (data.get("data") or []) if float(p.get("total", 0)) > 0]
 
-async def close_position(bg, p):
+async def close_position(bg, p, size_override=None):
     sym = p["symbol"]
     hold_side = p["holdSide"]
-    size = float(p["total"])
+    size = size_override if size_override is not None else float(p["total"])
     size_str = str(int(size)) if size == int(size) else str(size)
     close_side = "sell" if hold_side == "long" else "buy"
     body_d = {"symbol": sym, "productType": "USDT-FUTURES",
@@ -112,9 +112,18 @@ async def main():
 
         for bg, p in to_close:
             mode = "PAP" if not bg.live else "LIVE"
-            print(f"平仓 [{mode}] {p['symbol']} {p['holdSide']} ...", end=" ", flush=True)
-            res = await close_position(bg, p)
-            print(f"{'✓' if str(res.get('code',''))=='00000' else '✗'} {res}")
+            # 先试平1个，确认API可用
+            print(f"测试平1个 [{mode}] {p['symbol']} {p['holdSide']} ...", end=" ", flush=True)
+            res = await close_position(bg, p, size_override=1)
+            ok = str(res.get('code','')) == '00000'
+            print(f"{'✓' if ok else '✗'} {res}")
+            if ok:
+                # 成功了再平剩余
+                remain = float(p["total"]) - 1
+                if remain > 0:
+                    print(f"平仓剩余 {remain} ...", end=" ", flush=True)
+                    res2 = await close_position(bg, p, size_override=remain)
+                    print(f"{'✓' if str(res2.get('code',''))=='00000' else '✗'} {res2}")
 
     finally:
         await asyncio.gather(bg_live.close(), bg_pap.close(), return_exceptions=True)
