@@ -99,7 +99,9 @@ async def _close_bitget(client, sym: str, side: str, size: float):
         "symbol": sym, "productType": "USDT-FUTURES",
         "marginMode": "isolated", "marginCoin": "USDT",
         "size": str(int(size)) if size == int(size) else str(size),
-        "side": close_side, "tradeSide": "close", "orderType": "market",
+        "side": close_side, "tradeSide": "close",
+        "holdSide": side,  # 双向持仓模式必须指定
+        "orderType": "market",
     })
     path = "/api/v2/mix/order/place-order"
     sess = await client._sess()

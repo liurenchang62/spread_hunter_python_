@@ -1287,6 +1287,9 @@ class BitgetClient(BaseClient):
                 "tradeSide": "close" if reduce_only else "open",
                 "orderType": "market",
             }
+            # 双向持仓模式下平仓必须指定 holdSide，否则返回 22002
+            if reduce_only:
+                body_d["holdSide"] = "long" if side.lower() == "sell" else "short"
             body = json.dumps(body_d)
             path = "/api/v2/mix/order/place-order"
             try:
