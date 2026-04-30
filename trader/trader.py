@@ -484,22 +484,19 @@ class Trader:
 
         if not small_res.success and not big_res.success:
             fails = self._close_fail_counts.get(pos.id, 0) + 1
-            self._close_fail_counts[pos.id] = fails
-            MAX_CLOSE_RETRIES = 8
-            if fails >= MAX_CLOSE_RETRIES:
-                logger.critical(
-                    f"[trader] ⚠️ 平仓重试 {fails} 次仍失败，强制移除 {pos.id}"
-                    f" | small_err={small_res.error} | big_err={big_res.error}"
-                    f" | 请手动确认 {pos.small_exchange}/{pos.big_exchange} 上 {pos.symbol} 无残留敞口"
-                )
-                self._close_fail_counts.pop(pos.id, None)
-                self.pm.close_position(
-                    pos_id=pos.id, close_pnl_pct=pnl_pct, reason="force_abandon",
-                    small_close_result=None, big_close_result=None,
-                )
-            else:
+            CLOSE_WARN_AFTER = 5   # 连续失败达此次数时告警，并重置计数继续重试
+            if fails >= CLOSE_WARN_AFTER:
                 logger.warning(
-                    f"[trader] 平仓双腿失败 {pos.id} ({fails}/{MAX_CLOSE_RETRIES})"
+                    f"[trader] ⚠️ 平仓已连续失败 {fails} 次，继续重试"
+                    f" | {pos.id} {pos.symbol} {pos.big_exchange}/{pos.small_exchange}"
+                    f" | small_err={small_res.error} | big_err={big_res.error}"
+                    f" | 若长期无法平仓请手动检查交易所持仓"
+                )
+                self._close_fail_counts[pos.id] = 0   # 重置，后续继续每5次告警一次
+            else:
+                self._close_fail_counts[pos.id] = fails
+                logger.warning(
+                    f"[trader] 平仓双腿失败 {pos.id} ({fails}/{CLOSE_WARN_AFTER})"
                     f" | small_err={small_res.error} | big_err={big_res.error}"
                 )
             return
