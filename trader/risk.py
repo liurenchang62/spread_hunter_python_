@@ -230,6 +230,25 @@ class RiskManager:
             except Exception as e:
                 logger.debug(f"[risk] {ex} 余额查询异常: {e}")
 
+        # 期货余额为 0 但现货有余额 → 自动补划转（处理启动扫描失败或到账延迟的情况）
+        for ex, client in self._clients.items():
+            if self.state.balance.get(ex, 0) > 1.0:
+                continue
+            try:
+                spot = await client.get_spot_balance()
+                if spot < 1.0:
+                    continue
+                logger.info(f"[risk] {ex} 期货余额不足但现货有 {spot:.2f}U，尝试自动划转…")
+                ok = await client.transfer_to_futures(spot)
+                if ok:
+                    new_bal = await client.get_balance()
+                    self.state.balance[ex] = new_bal
+                    logger.info(f"[risk] {ex} 自动划转成功，期货余额={new_bal:.2f}U")
+                else:
+                    logger.warning(f"[risk] {ex} 自动划转失败，请检查 API 权限（是否开启划转/现货权限）")
+            except Exception as e:
+                logger.debug(f"[risk] {ex} 自动划转检查异常: {e}")
+
     async def _fetch_balance(self, exchange: str) -> Optional[float]:
         client = self._clients.get(exchange)
         if not client:
