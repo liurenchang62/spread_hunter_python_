@@ -49,8 +49,8 @@ class Position:
     status: str = "open"            # "open" | "closing" | "closed"
 
     # 平仓信息
-    close_anomaly_pct: float = 0.0
-    close_time:        float = 0.0
+    close_pnl_pct: float = 0.0    # 平仓时的双腿合并 PnL（%）
+    close_time:    float = 0.0
     close_reason:      str   = ""   # "convergence" | "stop_loss" | "timeout"
     pnl_usdt:          float = 0.0  # 净盈亏（含手续费）
 

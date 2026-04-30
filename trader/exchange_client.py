@@ -199,7 +199,7 @@ class BinanceClient(BaseClient):
 
     async def place_order(
         self, symbol: str, side: str, target_qty: float,
-        ref_price: float, symbol_info=None,
+        ref_price: float, symbol_info=None, reduce_only: bool = False,
     ) -> OrderResult:
         # Binance USDT-M：qty 直接是 base coin
         # 优先使用 symbol_info 提供的 step_size，如果不存在则根据价格猜测
@@ -239,10 +239,13 @@ class BinanceClient(BaseClient):
         # 确保没有浮点误差产生的额外小数位
         qty = float(qty_str)
 
-        params, headers = self._sign({
+        req = {
             "symbol": symbol.upper(), "side": side.upper(),
             "type": "MARKET", "quantity": qty_str,
-        })
+        }
+        if reduce_only:
+            req["reduceOnly"] = "true"
+        params, headers = self._sign(req)
         try:
             sess = await self._sess()
             async with sess.post(
@@ -1260,7 +1263,7 @@ class BitgetClient(BaseClient):
 
     async def place_order(
         self, symbol: str, side: str, target_qty: float,
-        ref_price: float, symbol_info=None,
+        ref_price: float, symbol_info=None, reduce_only: bool = False,
     ) -> OrderResult:
         # Bitget：size 单位直接是 base coin（native_ct_val=1.0）
         step = symbol_info.qty_step if symbol_info and symbol_info.qty_step > 0 else 0.001
@@ -1280,7 +1283,8 @@ class BitgetClient(BaseClient):
                 "symbol": symbol, "productType": product_type,
                 "marginMode": "isolated", "marginCoin": margin_coin,
                 "size": str(qty), "side": side.lower(),
-                "tradeSide": "open", "orderType": "market",
+                "tradeSide": "close" if reduce_only else "open",
+                "orderType": "market",
             }
             body = json.dumps(body_d)
             path = "/api/v2/mix/order/place-order"

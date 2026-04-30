@@ -40,8 +40,11 @@ HOLD_ESTIMATE_S     = 60.0   # 预估持仓时长（秒），用于资金费率�
 SLIPPAGE_MULTIPLIER = 0.5    # 滑点保守系数：BBO 价差 × 此系数（仅进场，出场假设收敛）
 
 # ─── 平仓条件 ─────────────────────────────────────────────────────────────────
-CONVERGENCE_PCT  = 0.15    # |anomaly| <= 此值认为价差收敛 → 止盈平仓（%）
-STOP_LOSS_PCT    = 5.0     # anomaly 反向超过此值 → 止损平仓（%）（5% = 500bps）
+# 止盈：双腿合并 PnL（来自价格变动，相对名义价值）达到阈值即平仓。
+# 计算方式：pnl_pct = unrealized_pnl / total_notional × 100
+# 0.20% 的毛 PnL 扣除平仓手续费（约 0.10%）≈ 净利润 0.10%，与 MIN_NET_ROI 对齐。
+TAKE_PROFIT_PCT  = 0.20    # 双腿合并 PnL >= 此值 → 止盈平仓（%，宽松快速退出）
+STOP_LOSS_PCT    = 8.0     # 双腿合并 PnL <= -此值 → 止损平仓（%，宽松兜底）
 MAX_HOLD_SECONDS = 28800   # 兜底强平时间（秒），正常退出由费率/收敛/止损控制（8h）
 FUNDING_EXIT_BEFORE_S = 300  # 费率不利时，结算前多少秒平仓（5min）
 

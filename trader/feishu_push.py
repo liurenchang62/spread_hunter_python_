@@ -146,7 +146,7 @@ def format_close_position(pos, total_pnl_session: float) -> str:
         f"标的: {pos.symbol} | {pos.small_exchange}/{pos.big_exchange}\n"
         f"原因: {reason_cn} ({pos.close_reason})\n"
         f"持仓时长: {hold_s:.1f}s\n"
-        f"平仓 anomaly: {pos.close_anomaly_pct:+.4f}%\n"
+        f"平仓 PnL: {pos.close_pnl_pct:+.4f}%\n"
         f"本笔PnL: {pos.pnl_usdt:+.4f} USDT\n"
         f"本次运行累计PnL: {total_pnl_session:+.4f} USDT\n"
         f"平仓价: small@{pos.small_close_price:.6g} big@{pos.big_close_price:.6g}"

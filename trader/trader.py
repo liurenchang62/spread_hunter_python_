@@ -36,7 +36,7 @@ from clients import to_exchange_fmt
 from tracker.models import MarketEvent, Tick
 import trader.config as _trader_cfg
 from trader.config import (
-    CONVERGENCE_PCT,
+    TAKE_PROFIT_PCT,
     MAX_HOLD_SECONDS,
     MIN_ANOMALY_TO_OPEN_PCT,
     PAIR_CAPITAL_PCT,
@@ -280,15 +280,10 @@ class Trader:
             if not big_tick or not sml_tick:
                 continue
 
-            anomaly = self.tracker.baseline.get_pair_anomaly(
-                big, small, sym, big_tick.mid, sml_tick.mid
-            )
-            if anomaly is None:
-                continue
-
-            reason = self._check_exit_reason(pos, anomaly)
+            pnl_pct = self._compute_pnl_pct(pos, sml_tick.mid, big_tick.mid)
+            reason = self._check_exit_reason(pos, pnl_pct)
             if reason:
-                self._schedule_exit(pos, anomaly, reason)
+                self._schedule_exit(pos, pnl_pct, reason)
 
     # ─── WS 重连回调（同步）──────────────────────────────────────────────────
 
@@ -314,14 +309,10 @@ class Trader:
             sml_tick = latest.get(small)
             if not big_tick or not sml_tick:
                 continue
-            anomaly = self.tracker.baseline.get_pair_anomaly(
-                big, small, sym, big_tick.mid, sml_tick.mid
-            )
-            if anomaly is None:
-                continue
-            reason = self._check_exit_reason(pos, anomaly)
+            pnl_pct = self._compute_pnl_pct(pos, sml_tick.mid, big_tick.mid)
+            reason = self._check_exit_reason(pos, pnl_pct)
             if reason:
-                self._schedule_exit(pos, anomaly, reason)
+                self._schedule_exit(pos, pnl_pct, reason)
                 logger.info(f"[trader] 重连后检测到 {pos.id} 满足 {reason}，触发平仓")
 
     # ─── 开仓执行（async，HTTP I/O）─────────────────────────────────────────
@@ -453,14 +444,14 @@ class Trader:
 
     # ─── 平仓执行 ─────────────────────────────────────────────────────────────
 
-    async def _do_exit(self, pos: Position, anomaly: float, reason: str):
+    async def _do_exit(self, pos: Position, pnl_pct: float, reason: str):
         # 允许 "closing"：前一次平仓任务在 mark_closing 之后异常终止时，重试需要能继续
         if pos.status not in ("open", "closing"):
             return
 
         logger.info(
             f"[trader] EXIT | {pos.id} {pos.symbol} reason={reason}"
-            f" anomaly={anomaly:+.3f}% hold={pos.hold_seconds:.1f}s"
+            f" pnl={pnl_pct:+.3f}% hold={pos.hold_seconds:.1f}s"
         )
         self.pm.mark_closing(pos.id)
 
@@ -516,7 +507,7 @@ class Trader:
 
         notional = pos.small_leg.size_usdt + pos.big_leg.size_usdt
         closed = self.pm.close_position(
-            pos_id=pos.id, close_anomaly_pct=anomaly, reason=reason,
+            pos_id=pos.id, close_pnl_pct=pnl_pct, reason=reason,
             small_close_result=small_res, big_close_result=big_res,
         )
         if closed:
@@ -574,14 +565,10 @@ class Trader:
                 sml_tick = latest.get(small)
                 if not big_tick or not sml_tick:
                     continue
-                anomaly = self.tracker.baseline.get_pair_anomaly(
-                    big, small, sym, big_tick.mid, sml_tick.mid
-                )
-                if anomaly is None:
-                    continue
-                reason = self._check_exit_reason(pos, anomaly)
+                pnl_pct = self._compute_pnl_pct(pos, sml_tick.mid, big_tick.mid)
+                reason = self._check_exit_reason(pos, pnl_pct)
                 if reason:
-                    self._schedule_exit(pos, anomaly, reason)
+                    self._schedule_exit(pos, pnl_pct, reason)
 
     # ─── 日止损监控 ────────────────────────────────────────────────────────
 
@@ -632,10 +619,10 @@ class Trader:
 
     # ─── 辅助 ────────────────────────────────────────────────────────────────
 
-    def _schedule_exit(self, pos: Position, anomaly: float, reason: str) -> None:
+    def _schedule_exit(self, pos: Position, pnl_pct: float, reason: str) -> None:
         """统一调度平仓任务，自动清理完成后的引用，防止 _exit_tasks 无限增长。"""
         pos_id = pos.id
-        task = self._loop.create_task(self._do_exit(pos, anomaly, reason))
+        task = self._loop.create_task(self._do_exit(pos, pnl_pct, reason))
         self._exit_tasks[pos_id] = task
         task.add_done_callback(lambda t: self._exit_tasks.pop(pos_id, None))
 
@@ -645,7 +632,18 @@ class Trader:
         br = self.mi.get_funding_rate(pos.big_exchange,   pos.symbol)
         return (br - sr) if pos.direction == "long" else (sr - br)
 
-    def _check_exit_reason(self, pos: "Position", anomaly: float) -> str:
+    def _compute_pnl_pct(self, pos: "Position", small_mid: float, big_mid: float) -> float:
+        """双腿合并未实现 PnL（%，相对总名义价值，不含手续费）。"""
+        notional = 0.0
+        if pos.small_leg:
+            notional += pos.small_leg.size_usdt
+        if pos.big_leg:
+            notional += pos.big_leg.size_usdt
+        if notional <= 0:
+            return 0.0
+        return pos.unrealized_pnl(small_mid, big_mid) / notional * 100.0
+
+    def _check_exit_reason(self, pos: "Position", pnl_pct: float) -> str:
         # 1. 费率不利 → 结算前 FUNDING_EXIT_BEFORE_S 秒平仓
         if self._net_funding_rate(pos) < 0:
             secs_left = _seconds_to_next_funding()
@@ -654,13 +652,11 @@ class Trader:
         # 2. 兜底超时（极长，正常不触发）
         if pos.hold_seconds >= MAX_HOLD_SECONDS:
             return "timeout"
-        # 3. 止盈（价差收敛）
-        if abs(anomaly) <= CONVERGENCE_PCT:
+        # 3. 止盈：双腿合并 PnL >= TAKE_PROFIT_PCT
+        if pnl_pct >= TAKE_PROFIT_PCT:
             return "convergence"
-        # 4. 止损（5%）
-        if pos.direction == "long"  and anomaly < -STOP_LOSS_PCT:
-            return "stop_loss"
-        if pos.direction == "short" and anomaly >  STOP_LOSS_PCT:
+        # 4. 止损：双腿合并 PnL <= -STOP_LOSS_PCT（宽松兜底）
+        if pnl_pct <= -STOP_LOSS_PCT:
             return "stop_loss"
         return ""
 
@@ -698,6 +694,113 @@ class Trader:
                 if isinstance(r, Exception) or (hasattr(r, "success") and not r.success):
                     err = str(r) if isinstance(r, Exception) else r.error
                     logger.error(f"[trader] 紧急平仓失败（需人工处理）: {err}")
+
+    async def load_legacy_positions(self) -> None:
+        """
+        启动时从各所拉取已有持仓，按 symbol 匹配大所/小所两腿，
+        重建 Position 对象纳入 PM，与新开仓统一用 PnL 监控平仓。
+        """
+        from clients import BIG_EXCHANGES, SMALL_EXCHANGES
+        BIG  = set(BIG_EXCHANGES)   # {"binance", "okx"}
+        SMALL = set(SMALL_EXCHANGES) # {"gate", "bitget"}
+
+        def _sym_canonical(ex: str, raw_sym: str) -> str:
+            """将各所 symbol 格式统一为 Binance 格式（如 BSBUSDT）。"""
+            if ex == "okx":
+                # "BSB-USDT-SWAP" → "BSBUSDT"
+                parts = raw_sym.split("-")
+                return parts[0] + parts[1] if len(parts) >= 2 else raw_sym
+            if ex == "gate":
+                # "BSB_USDT" → "BSBUSDT"
+                return raw_sym.replace("_", "")
+            return raw_sym  # binance / bitget already correct
+
+        def _parse_leg(ex: str, raw: dict) -> tuple[str, str, float, float, str]:
+            """返回 (canonical_sym, exchange_sym, size_base, entry_price, side)。"""
+            try:
+                if ex == "binance":
+                    raw_sym = raw.get("symbol", "")
+                    amt     = float(raw.get("positionAmt", 0))
+                    entry   = float(raw.get("entryPrice", 0))
+                    side    = "buy" if amt > 0 else "sell"
+                    return _sym_canonical(ex, raw_sym), raw_sym, abs(amt), entry, side
+                elif ex == "okx":
+                    raw_sym = raw.get("instId", "")
+                    contracts = abs(float(raw.get("pos", 0)))
+                    entry   = float(raw.get("avgPx", 0))
+                    ct_val  = float(raw.get("ctVal", 1.0))
+                    side    = "buy" if float(raw.get("pos", 0)) > 0 else "sell"
+                    return _sym_canonical(ex, raw_sym), raw_sym, contracts * ct_val, entry, side
+                elif ex == "gate":
+                    raw_sym = raw.get("contract", "")
+                    size    = float(raw.get("size", 0))
+                    entry   = float(raw.get("entry_price", 0))
+                    ct_val  = float(raw.get("quanto_multiplier", 1.0))
+                    side    = "buy" if size > 0 else "sell"
+                    return _sym_canonical(ex, raw_sym), raw_sym, abs(size) * ct_val, entry, side
+                elif ex == "bitget":
+                    raw_sym  = raw.get("symbol", "")
+                    total    = float(raw.get("total", 0))
+                    entry    = float(raw.get("openPriceAvg", 0))
+                    hold     = raw.get("holdSide", "long")
+                    side     = "buy" if hold == "long" else "sell"
+                    return _sym_canonical(ex, raw_sym), raw_sym, total, entry, side
+            except Exception:
+                pass
+            return "", "", 0.0, 0.0, ""
+
+        # 拉取各所持仓
+        all_legs: dict[str, list] = {}  # canonical_sym → [(ex, raw_sym, size, entry, side)]
+        for ex, client in self.clients.items():
+            try:
+                positions = await client.get_positions()
+                for raw in positions:
+                    canon, ex_sym, size, entry, side = _parse_leg(ex, raw)
+                    if not canon or size <= 0 or entry <= 0:
+                        continue
+                    all_legs.setdefault(canon, []).append((ex, ex_sym, size, entry, side))
+            except Exception as e:
+                logger.warning(f"[trader] 加载旧持仓时 {ex} 查询失败: {e}")
+
+        # 按 symbol 匹配大所 + 小所两腿
+        loaded = 0
+        for canon_sym, legs in all_legs.items():
+            big_legs   = [(ex, es, sz, ep, sd) for ex, es, sz, ep, sd in legs if ex in BIG]
+            small_legs = [(ex, es, sz, ep, sd) for ex, es, sz, ep, sd in legs if ex in SMALL]
+            if not big_legs or not small_legs:
+                continue  # 找不到配对（单边敞口，不自动纳入）
+            b_ex, b_sym, b_sz, b_entry, b_side = big_legs[0]
+            s_ex, s_sym, s_sz, s_entry, s_side = small_legs[0]
+
+            # 方向：small 腿买入 = long；small 腿卖出 = short
+            direction = "long" if s_side == "buy" else "short"
+
+            small_leg = Leg(
+                exchange=s_ex, symbol=s_sym, side=s_side,
+                order_id="", entry_price=s_entry,
+                size_base=s_sz, size_usdt=s_sz * s_entry,
+            )
+            big_leg = Leg(
+                exchange=b_ex, symbol=b_sym, side=b_side,
+                order_id="", entry_price=b_entry,
+                size_base=b_sz, size_usdt=b_sz * b_entry,
+            )
+            pos = Position(
+                symbol=canon_sym, big_exchange=b_ex, small_exchange=s_ex,
+                direction=direction, small_leg=small_leg, big_leg=big_leg,
+                open_anomaly_pct=0.0,
+            )
+            self.pm.add_position(pos)
+            loaded += 1
+            logger.info(
+                f"[trader] 加载旧持仓 {pos.id} | {canon_sym} {b_ex}/{s_ex}"
+                f" | dir={direction} | small_entry={s_entry} big_entry={b_entry}"
+            )
+
+        if loaded:
+            logger.info(f"[trader] 共加载 {loaded} 笔旧持仓，热身后与新仓统一 PnL 监控")
+        else:
+            logger.info("[trader] 各所无旧持仓需要加载")
 
     async def _close_all_clients(self):
         for client in self.clients.values():

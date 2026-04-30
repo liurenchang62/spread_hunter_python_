@@ -18,7 +18,7 @@ logger = logging.getLogger("trader.cost")
 
 from tracker.models import MarketEvent
 from trader.config import (
-    CONVERGENCE_PCT,
+    TAKE_PROFIT_PCT,
     HOLD_ESTIMATE_S,
     MIN_NET_ROI,
     MIN_ORDER_NOTIONAL_USDT,
@@ -98,9 +98,9 @@ def evaluate(
     # 3. 毛利润
     #    gross = target_qty × p_small × (A - C) / 100
     A = abs(ev.anomaly_pct)
-    C = CONVERGENCE_PCT
+    C = TAKE_PROFIT_PCT   # 预计最小收益：价差至少需要回归 TAKE_PROFIT_PCT 才能盈利
     if A <= C:
-        return _reject(f"anomaly {A:.3f}% <= convergence {C}%", target_qty, 0.0)
+        return _reject(f"anomaly {A:.3f}% <= take_profit_threshold {C}%", target_qty, 0.0)
 
     gross_usdt = target_qty * p_small * (A - C) / 100.0
 

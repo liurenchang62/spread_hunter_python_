@@ -69,12 +69,23 @@ On each tick from a major exchange:
 
 ### 3. Exit Conditions (by priority)
 
+Once a position is open, exits are driven by **actual fill-price PnL**, not the baseline anomaly. This works for both new positions (fill prices recorded at order time) and legacy positions loaded from the exchange on startup.
+
+```
+combined_pnl_pct = unrealized_pnl(current_prices) / total_notional × 100%
+```
+
 | Priority | Reason | Trigger |
 |----------|--------|---------|
 | 1 | **Funding exit** | Net funding rate < 0 (unfavorable) AND settlement ≤ 5 minutes away |
-| 2 | **Take profit (convergence)** | `\|anomaly\| ≤ CONVERGENCE_PCT = 0.15%` — spread normalized |
-| 3 | **Stop loss** | Adverse anomaly exceeds `STOP_LOSS_PCT = 5%`; triggers **no new entries for the rest of the day** |
+| 2 | **Take profit** | `combined_pnl_pct ≥ TAKE_PROFIT_PCT = 0.20%` — covers close fees (~0.10%), net ≈ 0.10% |
+| 3 | **Stop loss** | `combined_pnl_pct ≤ −STOP_LOSS_PCT = −8%` — wide last-resort; triggers **no new entries for the rest of the day** |
 | 4 | **Fallback timeout** | Hold time exceeds `MAX_HOLD_SECONDS = 8h` (normally never reached) |
+
+**Why PnL-based (not anomaly-based):**
+- After entry, the fill prices are known and fixed — actual P&L is directly measurable
+- No baseline dependency means old positions from a previous session are monitored identically to new ones
+- Exit logic is unified: new and legacy positions share the same `_check_exit_reason`
 
 **Funding rate logic:**
 - Long position net rate = `big_exchange_rate - small_exchange_rate`
@@ -128,8 +139,8 @@ HOLD_ESTIMATE_S           = 60.0   # Estimated hold time (seconds), for funding 
 SLIPPAGE_MULTIPLIER       = 0.5    # Slippage = BBO spread × 0.5 (conservative estimate)
 
 # ── Exit Conditions ──────────────────────────────────────────────────────────
-CONVERGENCE_PCT           = 0.15   # |anomaly| ≤ 0.15% → take profit
-STOP_LOSS_PCT             = 5.0    # Adverse anomaly > 5% → stop loss + no entries today
+TAKE_PROFIT_PCT           = 0.20   # combined_pnl_pct ≥ 0.20% → take profit (covers fees, net ~0.10%)
+STOP_LOSS_PCT             = 8.0    # combined_pnl_pct ≤ −8% → stop loss (wide, last resort)
 MAX_HOLD_SECONDS          = 28800  # Fallback timeout (8h), normally not triggered
 FUNDING_EXIT_BEFORE_S     = 300    # Exit N seconds before settlement if funding is unfavorable
 

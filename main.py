@@ -192,20 +192,21 @@ async def _async_main(live: bool) -> int:
 
     print(_banner(live))
 
-    # ── 实盘启动前维护（sweep + 残留持仓清理）──────────────────────────────
+    # ── 实盘启动前维护（sweep）────────────────────────────────────────────
     if live:
-        # Step 1: 现货→期货自动划转
+        # 现货→期货自动划转
         logger.info("[main] 检查现货余额并自动划转至期货账户…")
         await _sweep_spot_to_futures()
-
-        # Step 2: 关闭残留持仓（释放被占用的保证金）
-        logger.info("[main] 检查并关闭各所残留持仓…")
-        await _close_all_positions()
 
     # ── 初始化 ────────────────────────────────────────────────────────────────
     tracker    = Tracker()
     trader     = Trader(tracker)
     supervisor = RebalanceSupervisor(trader.risk) if live else None
+
+    # ── 加载旧持仓（热身后与新开仓统一 PnL 监控）──────────────────────────
+    if live:
+        logger.info("[main] 检查并加载各所旧持仓…")
+        await trader.load_legacy_positions()
 
     # ── 优雅退出处理 ──────────────────────────────────────────────────────────
     loop = asyncio.get_running_loop()
@@ -323,7 +324,7 @@ def main():
         if readonly_ok:
             prompt = (
                 "\033[32m只读检查全部通过。\033[0m\n"
-                "即将划转现货余额、清理残留持仓并\033[31m启动实盘交易\033[0m。\n"
+                "即将划转现货余额并\033[31m启动实盘交易\033[0m。\n"
                 "请输入 YES 确认: "
             )
         else:

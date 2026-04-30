@@ -33,8 +33,8 @@ HOLD_ESTIMATE_S     = 60.0
 SLIPPAGE_MULTIPLIER = 0.5
 
 # ─── 平仓条件 ─────────────────────────────────────────────────────────────────
-CONVERGENCE_PCT  = 0.15
-STOP_LOSS_PCT    = 0.8
+TAKE_PROFIT_PCT  = 0.20
+STOP_LOSS_PCT    = 8.0
 MAX_HOLD_SECONDS = 300
 
 # ─── 市场信息刷新 ─────────────────────────────────────────────────────────────

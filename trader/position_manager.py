@@ -81,7 +81,7 @@ class PositionManager:
     def close_position(
         self,
         pos_id: str,
-        close_anomaly_pct: float,
+        close_pnl_pct: float,
         reason: str,
         small_close_result,
         big_close_result,
@@ -94,9 +94,9 @@ class PositionManager:
         if not pos:
             return None
 
-        pos.status            = "closed"
-        pos.close_anomaly_pct = close_anomaly_pct
-        pos.close_time        = time.time()
+        pos.status        = "closed"
+        pos.close_pnl_pct = close_pnl_pct
+        pos.close_time    = time.time()
         pos.close_reason      = reason
 
         # 保存平仓腿成交详情
@@ -139,7 +139,7 @@ class PositionManager:
         self._write_log(pos)
         logger.info(
             f"[pm] 平仓 {pos.id} | reason={reason} | pnl={pnl:+.4f} USDT"
-            f" | hold={pos.hold_seconds:.1f}s | anomaly@close={close_anomaly_pct:.3f}%"
+            f" | hold={pos.hold_seconds:.1f}s | pnl_pct@close={close_pnl_pct:+.3f}%"
         )
         # 从内存中移除（平仓后不再需要，避免长期运行内存增长）
         self._positions.pop(pos_id, None)
@@ -156,8 +156,8 @@ class PositionManager:
                     "big_exchange", "small_exchange",
                     # ── 时间
                     "open_time_utc", "close_time_utc", "hold_seconds",
-                    # ── 价差
-                    "open_anomaly_pct", "close_anomaly_pct",
+                    # ── 开仓异常值 / 平仓PnL
+                    "open_anomaly_pct", "close_pnl_pct",
                     # ── 平仓原因
                     "close_reason",
                     # ── 小所开仓腿
@@ -192,7 +192,7 @@ class PositionManager:
                     pos.id, pos.symbol, pos.direction,
                     pos.big_exchange, pos.small_exchange,
                     _utc(pos.open_time), _utc(pos.close_time), f"{pos.hold_seconds:.1f}",
-                    f"{pos.open_anomaly_pct:.4f}", f"{pos.close_anomaly_pct:.4f}",
+                    f"{pos.open_anomaly_pct:.4f}", f"{pos.close_pnl_pct:+.4f}",
                     pos.close_reason,
                     # small open
                     sl.order_id if sl else "", f"{sl.entry_price:.6f}" if sl else "",
