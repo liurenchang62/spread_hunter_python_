@@ -12,7 +12,7 @@ async def main():
     bg = BitgetClient(live=True, keys=get_live_keys("bitget"))
 
     try:
-        # 查询实际持仓
+        # 查询持仓
         path = "/api/v2/mix/position/all-position?productType=USDT-FUTURES&marginCoin=USDT"
         sess = await bg._sess()
         async with sess.get(f"{bg.base}{path}", headers=bg._sign("GET", path), ssl=False) as r:
@@ -23,30 +23,24 @@ async def main():
             print("Bitget 无持仓")
             return
 
-        print("=== Bitget 持仓 ===")
         for p in positions:
-            print(f"  {p['symbol']}  {p['holdSide']}  total={p['total']}")
-
-        import json
-        # 用 Flash Close Position 接口
-        for p in positions:
-            sym = p["symbol"]
+            sym       = p["symbol"]
             hold_side = p["holdSide"]
-            print(f"Flash平仓 {sym} {hold_side} ...", end=" ", flush=True)
-            try:
-                body_d = {"symbol": sym, "productType": "USDT-FUTURES", "holdSide": hold_side}
-                body = json.dumps(body_d)
-                path2 = "/api/v2/mix/order/flash-close-position"
-                sess2 = await bg._sess()
-                async with sess2.post(
-                    f"{bg.base}{path2}",
-                    headers=bg._sign("POST", path2, body),
-                    data=body, ssl=False,
-                ) as r2:
-                    data = await r2.json()
-                print(f"{'✓' if str(data.get('code','')) == '00000' else '✗'} {data}")
-            except Exception as e:
-                print(f"异常: {e}")
+            size      = float(p["total"])
+            close_side = "sell" if hold_side == "long" else "buy"
+            # 取当前市价作为 ref_price
+            ref_price  = float(p.get("openPriceAvg") or p.get("markPrice") or 1.0)
+
+            print(f"平仓 {sym} {hold_side} size={size} ...", end=" ", flush=True)
+            res = await bg.place_order(
+                symbol=sym, side=close_side,
+                target_qty=size, ref_price=ref_price,
+                symbol_info=None, reduce_only=True,
+            )
+            if res.success:
+                print(f"✓ orderId={res.order_id} fill={res.fill_price}")
+            else:
+                print(f"✗ {res.error}")
     finally:
         await bg.close()
 
