@@ -113,6 +113,7 @@ python -m test_live.preflight
 
 python -m tools.check_account
 python -m tools.find_balance                 # 全所各钱包类型 + 理财 USDT 汇总（需 api_keys_live）
+python -m tools.close_naked_positions        # 查询并手动平掉单边敞口（crash 后清理用）
 python -m tools.sweep_to_futures --dry-run   # 现货 USDT → 期货（干跑）
 python -m tools.sweep_to_futures             # 实盘划转（需 api_keys_live）
 # 导出 trader/config 参数；本机 --save 生成 ref，服务器 --compare ref 逐项对比
@@ -155,8 +156,8 @@ python -m rebalance.run --execute
 # ⚠️  以下文件已加入 .gitignore，不会上传到代码仓库
 #
 # clients/api_keys_live.py     — 实盘 API Key（Binance/OKX/Gate/Bitget）
-#                                各所后台绑定：当前 VPS 公网 IP
-# clients/api_keys_demo.py     — 模拟盘 / 测试网 API Key（同上四所）
+#                                各所后台 IP 白名单：绑定当前 VPS 公网 IP
+# clients/api_keys_demo.py     — Demo / 测试网 API Key（同上四所）
 # clients/withdrawal_addresses.py — 各所提币目标地址（SOL/BSC/TRX/ETH 网络）
 # trader/config.py             — 交易参数（资金比例、止损阈值、超时、风控）
 #

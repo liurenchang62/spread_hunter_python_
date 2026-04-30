@@ -29,6 +29,7 @@ main.py                     Entry: on startup, redeem earn → transfer to futur
 │   ├── trader.py           Main controller: entry / exit / timeout / funding exit
 │   ├── exchange_client.py  REST clients for 4 exchanges (orders / balances / transfers / earn)
 │   ├── risk.py             Risk: daily halt / stop-loss day-ban / balance refresh
+│   ├── feishu_push.py      Feishu (Lark) notifications — live mode only (optional)
 │   ├── cost_model.py       Cost evaluation: spread gain - fees - slippage = net profit
 │   ├── market_info.py      Contract specs + funding rates (refreshed every 4h)
 │   └── config.py           ← All trading parameters (see below)
@@ -181,14 +182,15 @@ COOLDOWN_MS               = 2000   # Per-symbol per-direction cooldown (ms)
 
 ```bash
 # 1. Install dependencies
-pip install -r requirements.txt
+pip install aiohttp websockets requests urllib3
+pip install orjson          # optional, faster JSON parsing
 
-# 2. Configure API keys (local files, not committed to git)
-# clients/api_keys.py             ← testnet keys
+# 2. Configure API keys (local files, never committed to git)
+# clients/api_keys_demo.py        ← demo/testnet keys
 # clients/api_keys_live.py        ← live trading keys
 # clients/withdrawal_addresses.py ← deposit addresses for rebalancing
 
-# 3. Run on testnet/demo
+# 3. Run on demo/testnet (LIVE_TRADING_ON = False)
 python main.py
 
 # 4. Run live (set LIVE_TRADING_ON = True in trader/config.py first)
@@ -197,8 +199,18 @@ python main.py --live
 
 ---
 
+## Feishu Notifications (Optional)
+
+Notifications are sent only in live mode (`python main.py --live`). Demo/testnet mode is silent.
+
+Events pushed: **start**, **open position**, **close position**, **close leg failure alert**.
+
+Override the defaults via environment variables: `FEISHU_WEBHOOK`, `FEISHU_BOT_AUTHORIZATION`.
+
+---
+
 ## Notes
 
 - `clients/api_keys*.py` and `clients/withdrawal_addresses.py` are in `.gitignore` and will never be committed
 - `trader/config.py` is tracked in git — parameter changes are versioned alongside code
-- Always validate thoroughly on testnet before using live funds; arbitrage strategies can still lose money in volatile markets
+- Always validate on testnet before using live funds; arbitrage strategies can still lose money in volatile markets

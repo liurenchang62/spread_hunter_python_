@@ -182,17 +182,18 @@ COOLDOWN_MS               = 2000   # 同标的同方向冷却时间（毫秒）
 
 ```bash
 # 1. 安装依赖
-pip install -r requirements.txt
+pip install aiohttp websockets requests urllib3
+pip install orjson          # 可选，加快 JSON 解析
 
 # 2. 配置 API 密钥（本地文件，不提交 git）
-# clients/api_keys.py        ← 测试网密钥
-# clients/api_keys_live.py   ← 实盘密钥
+# clients/api_keys_demo.py        ← Demo/测试网密钥
+# clients/api_keys_live.py        ← 实盘密钥
 # clients/withdrawal_addresses.py ← 各所充值地址（再平衡用）
 
-# 3. 启动（测试网/Demo）
+# 3. 启动（Demo/测试网，LIVE_TRADING_ON = False）
 python main.py
 
-# 4. 启动（主网实盘，需将 config.py 中 LIVE_TRADING_ON = True）
+# 4. 启动（主网实盘，需将 trader/config.py 中 LIVE_TRADING_ON = True）
 python main.py --live
 ```
 
