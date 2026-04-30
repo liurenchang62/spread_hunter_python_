@@ -1588,11 +1588,10 @@ class BitgetClient(BaseClient):
                     if amt < 0.01:
                         continue
                     order_id = str(item.get("orderId", ""))
+                    product_id = str(item.get("productId", ""))
                     period_type = item.get("periodType", "")
-                    coin = item.get("coin", "USDT")
-                    body_d: dict = {"orderId": order_id, "coin": coin, "amount": round(amt, 2)}
-                    if period_type:
-                        body_d["periodType"] = period_type
+                    body_d: dict = {"productId": product_id, "orderId": order_id,
+                                    "periodType": period_type, "amount": amt_raw}
                     body = json.dumps(body_d)
                     logger.info(f"[bitget] earn redeem body={body}")
                     rpath = "/api/v2/earn/savings/redeem"
