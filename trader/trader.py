@@ -381,6 +381,16 @@ class Trader:
         )
         small_res, big_res = await asyncio.gather(small_task, big_task)
 
+        # fill_size=0 视为失败（Binance 立即返回 executedQty="0" 的情况）
+        if small_res.success and small_res.fill_size <= 0:
+            small_res = OrderResult(success=False, fill_price=0, fill_size=0,
+                                    order_id=small_res.order_id,
+                                    error=f"fill_size=0 (executedQty not confirmed, orderId={small_res.order_id})")
+        if big_res.success and big_res.fill_size <= 0:
+            big_res = OrderResult(success=False, fill_price=0, fill_size=0,
+                                  order_id=big_res.order_id,
+                                  error=f"fill_size=0 (executedQty not confirmed, orderId={big_res.order_id})")
+
         # 通知风控
         self.risk.on_order_placed(small)
         self.risk.on_order_placed(big)
