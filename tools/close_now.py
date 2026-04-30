@@ -28,15 +28,15 @@ async def main():
             print(f"  {p['symbol']}  {p['holdSide']}  total={p['total']}")
 
         import json
-        # 用 closePositions 接口一键平仓
+        # 用 Flash Close Position 接口
         for p in positions:
             sym = p["symbol"]
             hold_side = p["holdSide"]
-            print(f"平仓 {sym} {hold_side} ...", end=" ", flush=True)
+            print(f"Flash平仓 {sym} {hold_side} ...", end=" ", flush=True)
             try:
                 body_d = {"symbol": sym, "productType": "USDT-FUTURES", "holdSide": hold_side}
                 body = json.dumps(body_d)
-                path2 = "/api/v2/mix/order/closePositions"
+                path2 = "/api/v2/mix/order/flash-close-position"
                 sess2 = await bg._sess()
                 async with sess2.post(
                     f"{bg.base}{path2}",
