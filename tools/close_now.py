@@ -28,7 +28,7 @@ async def main():
         import json
         body = json.dumps({"symbol": sym, "productType": "USDT-FUTURES",
                            "marginMode": "isolated", "marginCoin": "USDT",
-                           "size": str(qty), "side": "sell",
+                           "size": str(int(qty)) if qty == int(qty) else str(qty), "side": "sell",
                            "tradeSide": "close", "orderType": "market"})
         path = "/api/v2/mix/order/place-order"
         sess = await bg._sess()
