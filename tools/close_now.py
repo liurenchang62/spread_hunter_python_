@@ -27,44 +27,24 @@ async def main():
         for p in positions:
             print(f"  {p['symbol']}  {p['holdSide']}  total={p['total']}")
 
+        import json
+        # 用 closePositions 接口一键平仓
         for p in positions:
             sym = p["symbol"]
-            hold_side = p["holdSide"]   # "long" or "short"
-            size = float(p["total"])
-            close_side = "sell" if hold_side == "long" else "buy"
-
-            print(f"平仓 {sym} {hold_side} size={size} side={close_side} ...", end=" ", flush=True)
+            hold_side = p["holdSide"]
+            print(f"平仓 {sym} {hold_side} ...", end=" ", flush=True)
             try:
-                # 直接构造关单请求（与 exchange_client place_order 内部逻辑一致）
-                import json, math
-                qty = size  # 已是整数coins
-                size_str = str(int(qty)) if qty == int(qty) else str(qty)
-
-                for product_type, use_pap, margin_coin in [
-                    ("USDT-FUTURES", True, "USDT"),
-                    ("SUSDT-FUTURES", False, "SUSDT"),
-                ]:
-                    body_d = {
-                        "symbol": sym, "productType": product_type,
-                        "marginMode": "isolated", "marginCoin": margin_coin,
-                        "size": size_str, "side": close_side,
-                        "tradeSide": "close", "orderType": "market",
-                    }
-                    body = json.dumps(body_d)
-                    path2 = "/api/v2/mix/order/place-order"
-                    sess2 = await bg._sess()
-                    async with sess2.post(
-                        f"{bg.base}{path2}",
-                        headers=bg._sign("POST", path2, body, use_pap=use_pap),
-                        data=body, ssl=False,
-                    ) as r2:
-                        data = await r2.json()
-                    print(f"[{product_type}] {data}", end=" ")
-                    if str(data.get("code", "")) == "00000":
-                        print("✓")
-                        break
-                else:
-                    print("✗ 两种模式都失败")
+                body_d = {"symbol": sym, "productType": "USDT-FUTURES", "holdSide": hold_side}
+                body = json.dumps(body_d)
+                path2 = "/api/v2/mix/order/closePositions"
+                sess2 = await bg._sess()
+                async with sess2.post(
+                    f"{bg.base}{path2}",
+                    headers=bg._sign("POST", path2, body),
+                    data=body, ssl=False,
+                ) as r2:
+                    data = await r2.json()
+                print(f"{'✓' if str(data.get('code','')) == '00000' else '✗'} {data}")
             except Exception as e:
                 print(f"异常: {e}")
     finally:
