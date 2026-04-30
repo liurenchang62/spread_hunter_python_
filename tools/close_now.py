@@ -38,8 +38,6 @@ async def main():
             return await r.json()
 
     jobs = [
-        ("Binance", "BSBUSDT",  7,  bn_close),
-        ("Binance", "UBUSDT",  96,  bn_close),
         ("Bitget",  "BSBUSDT", 32,  bg_close),
         ("Bitget",  "UBUSDT",  96,  bg_close),
     ]
