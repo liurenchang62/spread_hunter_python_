@@ -1589,7 +1589,8 @@ class BitgetClient(BaseClient):
                         continue
                     order_id = str(item.get("orderId", ""))
                     period_type = item.get("periodType", "")
-                    body_d: dict = {"orderId": order_id, "amount": round(amt, 2)}
+                    coin = item.get("coin", "USDT")
+                    body_d: dict = {"orderId": order_id, "coin": coin, "amount": round(amt, 2)}
                     if period_type:
                         body_d["periodType"] = period_type
                     body = json.dumps(body_d)
