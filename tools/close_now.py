@@ -1,4 +1,4 @@
-"""临时脚本：平仓 BSB 和 UB 两腿，用完即删"""
+"""临时脚本：平仓 Bitget 裸敞口，用完即删"""
 import asyncio, sys
 from pathlib import Path
 _root = Path(__file__).resolve().parent.parent
@@ -6,63 +6,73 @@ if str(_root) not in sys.path:
     sys.path.insert(0, str(_root))
 
 async def main():
-    from trader.exchange_client import BinanceClient, BitgetClient
+    from trader.exchange_client import BitgetClient
     from clients.api_keys_live import get_live_keys
 
-    bn = BinanceClient(live=True, keys=get_live_keys("binance"))
-    bg = BitgetClient(live=True,  keys=get_live_keys("bitget"))
+    bg = BitgetClient(live=True, keys=get_live_keys("bitget"))
 
-    # Binance 平仓：空头用 BUY reduceOnly
-    async def bn_close(sym, qty):
-        import time
-        req = {"symbol": sym, "side": "BUY", "type": "MARKET",
-               "quantity": str(qty), "reduceOnly": "true"}
-        params, headers = bn._sign(req)
-        sess = await bn._sess()
-        async with sess.post(f"{bn.base}/fapi/v1/order",
-                             params=params, headers=headers, ssl=False) as r:
-            return await r.json()
-
-    # Bitget 平仓：多头用 sell close，isolated 模式需要 holdSide
-    async def bg_close(sym, hold_side, qty):
-        import json
-        close_side = "buy" if hold_side == "short" else "sell"
-        size_str = str(int(qty)) if qty == int(qty) else str(qty)
-        body = json.dumps({"symbol": sym, "productType": "USDT-FUTURES",
-                           "marginMode": "isolated", "marginCoin": "USDT",
-                           "size": size_str, "side": close_side,
-                           "holdSide": hold_side,
-                           "tradeSide": "close", "orderType": "market"})
-        path = "/api/v2/mix/order/place-order"
+    try:
+        # 查询实际持仓
+        path = "/api/v2/mix/position/all-position?productType=USDT-FUTURES&marginCoin=USDT"
         sess = await bg._sess()
-        async with sess.post(f"{bg.base}{path}",
-                             headers=bg._sign("POST", path, body),
-                             data=body, ssl=False) as r:
-            return await r.json()
+        async with sess.get(f"{bg.base}{path}", headers=bg._sign("GET", path), ssl=False) as r:
+            raw = await r.json()
 
-    # 先查询 Bitget 实际持仓，打印原始数据
-    path = "/api/v2/mix/position/all-position?productType=USDT-FUTURES&marginCoin=USDT"
-    sess = await bg._sess()
-    async with sess.get(f"{bg.base}{path}", headers=bg._sign("GET", path), ssl=False) as r:
-        raw = await r.json()
-    print("=== Bitget 原始持仓 ===")
-    for p in (raw.get("data") or []):
-        print(f"  symbol={p.get('symbol')}  holdSide={p.get('holdSide')}  total={p.get('total')}  marginMode={p.get('marginMode')}")
+        positions = [p for p in (raw.get("data") or []) if float(p.get("total", 0)) > 0]
+        if not positions:
+            print("Bitget 无持仓")
+            return
 
-    # 用实际 symbol 平仓
-    to_close = [(p.get("symbol"), p.get("holdSide"), float(p.get("total", 0)))
-                for p in (raw.get("data") or [])
-                if float(p.get("total", 0)) > 0]
+        print("=== Bitget 持仓 ===")
+        for p in positions:
+            print(f"  {p['symbol']}  {p['holdSide']}  total={p['total']}")
 
-    for sym, side, size in to_close:
-        print(f"平仓 Bitget {sym} {side} size={int(size) if size==int(size) else size} ...", end=" ", flush=True)
-        try:
-            r = await bg_close(sym, side, size)
-            ok = r.get("data") or str(r.get("code","")) == "00000"
-            print("✓" if ok else f"✗ {r}")
-        except Exception as e:
-            print(f"异常: {e}")
+        # 用 place_order reduce_only=True 平仓（走已验证的代码路径）
+        from trader.market_info import MarketInfo
+        mi = MarketInfo()
+        await mi.refresh_all(list(bg._sess.__self__ if hasattr(bg._sess, '__self__') else []))
 
-    await asyncio.gather(bn.close(), bg.close(), return_exceptions=True)
+        for p in positions:
+            sym = p["symbol"]
+            hold_side = p["holdSide"]   # "long" or "short"
+            size = float(p["total"])
+            close_side = "sell" if hold_side == "long" else "buy"
+
+            print(f"平仓 {sym} {hold_side} size={size} side={close_side} ...", end=" ", flush=True)
+            try:
+                # 直接构造关单请求（与 exchange_client place_order 内部逻辑一致）
+                import json, math
+                qty = size  # 已是整数coins
+                size_str = str(int(qty)) if qty == int(qty) else str(qty)
+
+                for product_type, use_pap, margin_coin in [
+                    ("USDT-FUTURES", True, "USDT"),
+                    ("SUSDT-FUTURES", False, "SUSDT"),
+                ]:
+                    body_d = {
+                        "symbol": sym, "productType": product_type,
+                        "marginMode": "isolated", "marginCoin": margin_coin,
+                        "size": size_str, "side": close_side,
+                        "tradeSide": "close", "orderType": "market",
+                    }
+                    body = json.dumps(body_d)
+                    path2 = "/api/v2/mix/order/place-order"
+                    sess2 = await bg._sess()
+                    async with sess2.post(
+                        f"{bg.base}{path2}",
+                        headers=bg._sign("POST", path2, body, use_pap=use_pap),
+                        data=body, ssl=False,
+                    ) as r2:
+                        data = await r2.json()
+                    print(f"[{product_type}] {data}", end=" ")
+                    if str(data.get("code", "")) == "00000":
+                        print("✓")
+                        break
+                else:
+                    print("✗ 两种模式都失败")
+            except Exception as e:
+                print(f"异常: {e}")
+    finally:
+        await bg.close()
 
 asyncio.run(main())
