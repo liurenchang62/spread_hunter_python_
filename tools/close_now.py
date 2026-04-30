@@ -32,15 +32,20 @@ async def main():
             ref_price  = float(p.get("openPriceAvg") or p.get("markPrice") or 1.0)
 
             print(f"平仓 {sym} {hold_side} size={size} ...", end=" ", flush=True)
-            res = await bg.place_order(
-                symbol=sym, side=close_side,
-                target_qty=size, ref_price=ref_price,
-                symbol_info=None, reduce_only=True,
-            )
-            if res.success:
-                print(f"✓ orderId={res.order_id} fill={res.fill_price}")
-            else:
-                print(f"✗ {res.error}")
+            # 不用 tradeSide:close，直接 market sell（one-way 模式会净仓）
+            import json
+            size_str = str(int(size)) if size == int(size) else str(size)
+            body_d = {"symbol": sym, "productType": "USDT-FUTURES",
+                      "marginMode": "isolated", "marginCoin": "USDT",
+                      "size": size_str, "side": close_side, "orderType": "market"}
+            body = json.dumps(body_d)
+            path2 = "/api/v2/mix/order/place-order"
+            sess2 = await bg._sess()
+            async with sess2.post(f"{bg.base}{path2}",
+                                  headers=bg._sign("POST", path2, body),
+                                  data=body, ssl=False) as r2:
+                data = await r2.json()
+            print(f"{'✓' if str(data.get('code',''))=='00000' else '✗'} {data}")
     finally:
         await bg.close()
 
