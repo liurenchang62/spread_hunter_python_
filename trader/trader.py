@@ -634,11 +634,12 @@ class Trader:
 
     def _compute_pnl_pct(self, pos: "Position", small_mid: float, big_mid: float) -> float:
         """双腿合并未实现 PnL（%，相对总名义价值，不含手续费）。"""
-        notional = 0.0
-        if pos.small_leg:
-            notional += pos.small_leg.size_usdt
-        if pos.big_leg:
-            notional += pos.big_leg.size_usdt
+        # 任意一腿开仓价为 0 说明成交确认未到，暂不计算 PnL
+        if not pos.small_leg or not pos.big_leg:
+            return 0.0
+        if pos.small_leg.entry_price <= 0 or pos.big_leg.entry_price <= 0:
+            return 0.0
+        notional = pos.small_leg.size_usdt + pos.big_leg.size_usdt
         if notional <= 0:
             return 0.0
         return pos.unrealized_pnl(small_mid, big_mid) / notional * 100.0

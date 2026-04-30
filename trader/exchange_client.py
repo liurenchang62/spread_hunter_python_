@@ -254,7 +254,8 @@ class BinanceClient(BaseClient):
             ) as r:
                 data = await r.json()
             if r.status == 200:
-                fill     = float(data.get("avgPrice") or data.get("price") or ref_price)
+                avg = float(data.get("avgPrice") or 0)
+                fill = avg if avg > 0 else (float(data.get("price") or 0) or ref_price)
                 fill_qty = float(data.get("executedQty", qty))
                 return OrderResult(
                     success=True, order_id=str(data.get("orderId", "")),
