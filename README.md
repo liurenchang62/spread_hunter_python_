@@ -1,212 +1,171 @@
-# Spread Hunter — Cross-Exchange Perpetual Futures Arbitrage
+# Spread Hunter
 
-**[中文文档 README.zh-CN.md](README.zh-CN.md)**
+### Event-driven cross-exchange perpetual-futures research system
 
----
+**English** · [简体中文](README.zh-CN.md) · [Architecture](docs/ARCHITECTURE.md) · [Operations](docs/OPERATIONS.md)
 
-## Overview
+Spread Hunter studies short-lived price dislocations between perpetual-futures venues. It treats Binance and OKX as price-discovery venues and Gate and Bitget as follower venues, estimates the normal spread for each venue pair with a rolling median, and emits a candidate only when a leader move and a same-direction spread anomaly occur together.
 
-Spread Hunter is a fully automated **cross-exchange statistical arbitrage system** for perpetual futures. Major exchanges (Binance/OKX) lead in price discovery; minor exchanges (Gate/Bitget) lag behind. The system opens a position on the lagging exchange and hedges on the leading exchange, then closes both legs when the spread reverts.
+The repository follows the complete path from public market data to guarded two-leg execution: symbol selection, WebSocket normalization, online baseline estimation, signal filtering, transaction-cost evaluation, concurrent IOC submission, position recovery, exit monitoring, and capital rebalancing.
 
-**Key features**
-- Fully automated — market data → signal → cost check → concurrent orders → position management
-- WebSocket real-time feeds, in-memory signal filtering (μs-level latency)
-- Funding-rate aware — exits before unfavorable settlements, holds through favorable ones
-- Multi-layer risk control — daily loss halt / stop-loss day-ban / concentration limit / auto rebalancing
+> Research software for educational use. It is not investment advice and does not claim profitability.
 
----
+## System at a glance
 
-## Architecture
-
-```
-main.py                     Entry: redeem earn → transfer to futures → load legacy positions
-│
-├── tracker/                Market data
-│   ├── ws_feed.py          Concurrent WebSocket feeds for 4 exchanges (bid/ask/mid)
-│   ├── baseline.py         Rolling median baseline per exchange pair
-│   ├── signal_detector.py  Signal: major-exchange move + minor-exchange lag → MarketEvent
-│   └── symbol_selector.py  Refresh TOP 50 symbols by volume every 8h (4-exchange intersection)
-│
-├── trader/                 Trading engine
-│   ├── trader.py           Controller: entry / exit / timeout / funding exit
-│   ├── exchange_client.py  REST clients for 4 exchanges (orders / balances / transfers / earn)
-│   ├── risk.py             Daily halt / stop-loss day-ban / failure cooldown
-│   ├── feishu_push.py      Feishu (Lark) notifications — live mode only (optional)
-│   ├── cost_model.py       Net profit = spread gain − fees − slippage
-│   ├── market_info.py      Contract specs + funding rates (refreshed every 4h)
-│   └── config.py           All trading parameters
-│
-└── rebalance/
-    └── supervisor.py       Every 4h: if any exchange < 20% of total cash → auto on-chain transfer
+```mermaid
+flowchart LR
+    A[Four venue feeds] --> B[Normalized ticks]
+    B --> C[Rolling pair baselines]
+    B --> D[Leader-move detector]
+    C --> D
+    D --> E{Cost and risk gates}
+    E -->|pass| F[Concurrent IOC legs]
+    E -->|reject| G[Audit logs]
+    F --> H[Position manager]
+    H --> I[Tick-driven exits]
+    H --> J[Periodic safety sweep]
+    I --> K[Close both legs]
+    J --> K
 ```
 
----
+| Layer | Implementation |
+|---|---|
+| Market universe | Top-volume USDT perpetuals available on all four venues; refreshed periodically |
+| Market data | Concurrent WebSocket feeds normalized to a common `Tick` model |
+| Online state | Rolling-median baseline maintained per leader–follower–symbol tuple |
+| Signal | Leader move and baseline-relative anomaly must agree in direction; per-direction cooldown |
+| Execution | Fee, funding, slippage, minimum-notional, concentration, and rate-limit checks before concurrent IOC orders |
+| Recovery | Immediate reversal when only one opening leg fills; legacy positions are loaded at live startup |
+| Exit | Funding protection, timeout, take-profit, and stop-loss evaluated from fill-based two-leg PnL |
+| Observability | Structured CSV records, parameter snapshots, runtime summaries, and optional Feishu alerts |
 
-## Trading Logic
+## Research logic
 
-### 1. Signal Detection
+For leader venue \(L\), follower venue \(F\), and symbol \(s\), the instantaneous spread in basis points is
 
-On each tick from a major exchange:
-1. Calculate the major exchange's price move over the past 1 second
-2. If move ≥ `LEADER_MOVE_PCT` (0.3%) → significant move detected
-3. For each minor exchange, compute: `anomaly = current spread − rolling median baseline`
-4. If `|anomaly| ≥ ANOMALY_MIN_PCT` (0.5%) and direction matches → emit `MarketEvent`
+$$
+S_t^{L,F,s}=10^4\frac{P_t^L-P_t^F}{P_t^F}.
+$$
 
-`anomaly` measures **deviation from the historical baseline**, not the absolute spread. Persistent structural spreads are absorbed into the baseline; only sudden departures trigger signals.
+The online baseline \(B_t^{L,F,s}\) is a rolling median. The detector works with the residual
 
-### 2. Entry Conditions (all must pass)
+$$
+A_t^{L,F,s}=S_t^{L,F,s}-B_t^{L,F,s},
+$$
 
-| Condition | Parameter | Value |
-|-----------|-----------|-------|
-| Anomaly size | `MIN_ANOMALY_TO_OPEN_PCT` | ≥ 0.5% from baseline |
-| Cost-positive | `MIN_NET_ROI` | Net ROI after fees/slippage ≥ 0.1% |
-| Position limit | `MAX_POSITIONS_PER_PAIR` | Max 1 open position per pair |
-| Concentration | `MAX_SYMBOL_NOTIONAL_PCT` | Symbol notional ≤ 30% of total equity |
-| Balance | — | Futures available balance ≥ leg budget on each exchange |
+rather than the raw spread. This separates a temporary dislocation from a persistent venue premium. A candidate event requires both a sufficiently large leader return within `LEADER_WINDOW_MS` and a same-direction residual above `ANOMALY_MIN_PCT`. Detection and execution are separate stages: `trader/cost_model.py` can still reject the event after fees, funding, order-book slippage, and contract constraints are considered.
 
-**Capital per trade:** `min(exchange balances) × 1% ÷ 2` per leg (1% total), minimum 6 USDT  
-**Order type:** Both legs placed concurrently as IOC market orders — no resting orders
+The current default parameters are configuration values, not empirical claims. No return series or benchmark result is bundled with this repository.
 
-### 3. Exit Conditions (by priority)
+## Execution and failure boundaries
 
-PnL is computed from actual fill prices — not from the baseline anomaly. This means new positions and legacy positions loaded from the exchange on startup are monitored identically.
+Two opening legs are dispatched through `asyncio.gather`. The system does not assume atomicity across exchanges, so partial success is an explicit state: if one venue accepts and fills while the other fails, the filled leg is reversed immediately. Open positions are checked from incoming ticks and by a periodic sweep; WebSocket reconnects also trigger a position scan.
 
-```
-combined_pnl_pct = unrealized_pnl(current prices) / total notional × 100%
-```
+Risk state is independent from signal state. Daily-loss halt, post-stop-loss entry suspension, per-symbol concentration, per-exchange order-rate limits, consecutive-failure cooldown, and cash-distribution checks can all prevent a technically valid signal from becoming an order.
 
-| Priority | Trigger |
-|----------|---------|
-| 1 — Funding exit | Net funding rate < 0 AND settlement ≤ 5 min away |
-| 2 — Take profit | `combined_pnl_pct ≥ 0.20%` (covers close fees ~0.10%, net ~0.10%) |
-| 3 — Stop loss | `combined_pnl_pct ≤ −8%` — last resort; **no new entries for the rest of the day** |
-| 4 — Timeout | Hold time ≥ 8h (fallback, normally never reached) |
+## Repository map
 
-**Funding rate sign convention:**
-- Long position net rate = `big_exchange_rate − small_exchange_rate`
-- Short position net rate = `small_exchange_rate − big_exchange_rate`
-- Positive = favorable (hold); Negative = unfavorable (exit before settlement)
-
-### 4. Emergency Handling
-
-If one leg fills and the other fails, `_emergency_close` immediately reverses the filled leg to restore delta-neutrality and prevent unhedged exposure.
-
----
-
-## Risk Controls
-
-| Control | Parameter | Description |
-|---------|-----------|-------------|
-| Daily loss halt | `DAILY_HALT_PCT = 0.95` | Balance < 95% of day-start → close all, halt |
-| Post-stop-loss ban | — | After any stop-loss exit, no new entries until UTC midnight |
-| Concentration limit | `MAX_SYMBOL_NOTIONAL_PCT = 0.30` | All positions in one symbol ≤ 30% of equity |
-| Failure cooldown | `MAX_CONSECUTIVE_FAILS = 3` | 3 consecutive failures → 5-min cooldown |
-| Rate limit | `MAX_ORDERS_PER_MIN = 10` | Max 10 orders per exchange per minute |
-| Rebalancing | `REBALANCE_FLOOR_PCT = 0.20` | Any exchange < 20% of total cash → auto top-up |
-
----
-
-## Parameter Reference
-
-### trader/config.py
-
-```python
-# ── Master Switch ────────────────────────────────────────────────────────────
-LIVE_TRADING_ON           = False   # True = live mainnet; False = demo/testnet
-
-# ── Capital ──────────────────────────────────────────────────────────────────
-PAIR_CAPITAL_PCT          = 0.01    # Both legs combined = min(balances) × 1%
-MIN_ORDER_NOTIONAL_USDT   = 6.0     # Minimum leg notional (USDT)
-LEVERAGE                  = 1       # Contract leverage (1 = no borrowing)
-
-# ── Position Limits ──────────────────────────────────────────────────────────
-MAX_POSITIONS_PER_PAIR    = 1       # Max simultaneous positions per (big-small-symbol) pair
-MAX_POSITIONS_PER_SYMBOL  = 3       # Max positions per symbol across all pairs
-MAX_SYMBOL_NOTIONAL_PCT   = 0.30    # Symbol notional cap = total equity × 30%
-SESSION_MAX_ENTRIES       = 1       # Max entries per session (None = unlimited)
-
-# ── Entry ────────────────────────────────────────────────────────────────────
-MIN_ANOMALY_TO_OPEN_PCT   = 0.5     # Anomaly ≥ 0.5% from baseline (50 bps)
-MIN_NET_ROI               = 0.001   # Net ROI after fees/slippage ≥ 0.1%
-
-# ── Cost Model ───────────────────────────────────────────────────────────────
-HOLD_ESTIMATE_S           = 60.0    # Estimated hold time (s), for funding cost
-SLIPPAGE_MULTIPLIER       = 0.5     # Slippage = BBO spread × 0.5
-
-# ── Exit ─────────────────────────────────────────────────────────────────────
-TAKE_PROFIT_PCT           = 0.20    # combined_pnl_pct ≥ 0.20% → take profit
-STOP_LOSS_PCT             = 8.0     # combined_pnl_pct ≤ −8% → stop loss
-MAX_HOLD_SECONDS          = 28800   # Fallback timeout (8h)
-FUNDING_EXIT_BEFORE_S     = 300     # Exit N seconds before unfavorable settlement
-
-# ── Risk ─────────────────────────────────────────────────────────────────────
-DAILY_HALT_PCT            = 0.95    # Halt when balance < 95% of day-start
-MAX_CONSECUTIVE_FAILS     = 3       # Cooldown after N consecutive failures
-FAILURE_COOLDOWN_S        = 300     # Cooldown duration (seconds)
-MAX_ORDERS_PER_MIN        = 10      # Max orders per exchange per minute
-BALANCE_REFRESH_S         = 60      # Balance refresh interval (seconds)
-
-# ── Rebalancing ──────────────────────────────────────────────────────────────
-REBALANCE_CHECK_INTERVAL_H = 4      # Check interval (hours)
-REBALANCE_FLOOR_PCT        = 0.20   # Trigger if any exchange < 20% of total cash
+```text
+spread_hunter_python/
+├── main.py                 # Process lifecycle and live-mode preflight
+├── tracker/                # Feeds, universe, baselines, signals, spread logs
+├── trader/                 # Cost model, exchange adapters, execution, positions, risk
+├── rebalance/              # Cash-distribution checks and transfer planning
+├── test_demo/              # Demo/testnet integration checks
+├── test_live/              # Read-only and explicitly confirmed live checks
+├── tools/                  # Account, cash-flow, reachability, and recovery utilities
+├── clients/                # Venue URLs, symbol mapping, credential examples
+├── server/                 # Deployment and synchronization helpers
+├── docs/                   # Architecture and operating documentation
+└── logs/                   # Runtime outputs and parameter snapshots
 ```
 
-### tracker/config.py
+Module-level detail and lifecycle diagrams are in [Architecture](docs/ARCHITECTURE.md). Operational safeguards and command classifications are in [Operations](docs/OPERATIONS.md).
 
-```python
-# ── Symbol Selection ─────────────────────────────────────────────────────────
-TOP_N_SYMBOLS             = 50           # Symbols to monitor (4-exchange intersection)
-SYMBOL_REFRESH_H          = 8            # Refresh interval (hours)
-MIN_VOLUME_USDT           = 10_000_000   # Min 24h volume filter
+## Quick start
 
-# ── Baseline ─────────────────────────────────────────────────────────────────
-BASELINE_WARMUP_S         = 60      # Warm-up period (seconds); no signals fired
-BASELINE_WINDOW           = 2000    # Rolling window size (ticks)
-
-# ── Signal Detection ─────────────────────────────────────────────────────────
-LEADER_WINDOW_MS          = 1000    # Look-back window for major exchange move (ms)
-LEADER_MOVE_PCT           = 0.3     # Major exchange trigger: move ≥ 0.3% in 1s
-ANOMALY_MIN_PCT           = 0.5     # Minor exchange anomaly threshold: ≥ 0.5%
-COOLDOWN_MS               = 2000    # Per-symbol per-direction cooldown (ms)
-```
-
----
-
-## Quick Start
+### 1. Create an isolated environment
 
 ```bash
-# 1. Install dependencies
+python -m venv .venv
+# Linux/macOS
+source .venv/bin/activate
+# Windows PowerShell
+.venv\Scripts\Activate.ps1
+
 pip install aiohttp websockets requests urllib3
-pip install orjson          # optional, faster JSON parsing
+pip install orjson  # optional JSON acceleration
+```
 
-# 2. Configure API keys (local files, never committed to git)
-# clients/api_keys_demo.py        ← demo/testnet keys
-# clients/api_keys_live.py        ← live trading keys
-# clients/withdrawal_addresses.py ← deposit addresses for rebalancing
+Python 3.10 or newer is required. The root project currently does not ship a locked dependency file; record the resolved versions when reproducing an experiment.
 
-# 3. Run on demo/testnet (LIVE_TRADING_ON = False)
+### 2. Configure demo credentials
+
+Copy `clients/api_keys_demo.example.py` to `clients/api_keys_demo.py`, then supply testnet/demo credentials. Credential files are excluded by `.gitignore`. See [CONFIG_GUIDE.md](CONFIG_GUIDE.md) for venue-specific fields and secret-handling options.
+
+### 3. Validate before running
+
+```bash
+# Demo integration suite; use --skip-orders for checks that do not submit orders
+python -m test_demo.run_all --skip-orders
+
+# Market-data tracker only; never submits orders
+python -m tracker
+
+# Default application mode: demo/testnet
 python main.py
+```
 
-# 4. Run live (set LIVE_TRADING_ON = True in trader/config.py first)
+Live mode is intentionally not a one-line quick-start path. It uses live credentials, performs a read-only preflight, and requires an exact `YES` confirmation before continuing:
+
+```bash
 python main.py --live
 ```
 
-For deploying on a new server, see [`server/server_deployment_instructions.txt`](server/server_deployment_instructions.txt).
+Read [Operations](docs/OPERATIONS.md) before using any live command. Some scripts in `test_live/` and `rebalance/` can place orders, transfer assets, or request withdrawals.
 
----
+## Default runtime parameters
 
-## Feishu Notifications (Optional)
+| Concern | Configuration |
+|---|---|
+| Baseline warm-up / window | `60 s` / `2,000 ticks` |
+| Leader window / move threshold | `1,000 ms` / `0.3%` |
+| Minimum anomaly | `0.5%` |
+| Capital per pair | `1%` of the minimum futures balance across venues, both legs combined |
+| Leverage | `1×` |
+| Take-profit / stop-loss | `0.20%` / `8.0%` combined position PnL |
+| Maximum holding time | `8 h` |
+| Daily balance halt | below `95%` of the day-start balance |
 
-Notifications fire only in live mode (`python main.py --live`). Demo/testnet is silent.
+Source of truth: [`tracker/config.py`](tracker/config.py) and [`trader/config.py`](trader/config.py). Values above describe the current checked-in defaults and may change.
 
-Events: **start**, **open position**, **close position**, **close leg failure**.
+## Verification scope
 
-Override defaults via environment variables: `FEISHU_WEBHOOK`, `FEISHU_BOT_AUTHORIZATION`.
+The repository contains exchange-facing integration checks rather than a hermetic unit-test suite:
 
----
+- demo balance, position, order, cancellation, and transfer flows;
+- live read-only connectivity, account, order-book, contract, and funding checks;
+- opt-in live order and transfer checks with explicit confirmations;
+- operational utilities for account inspection and residual-exposure recovery.
 
-## Notes
+Results depend on exchange availability, account permissions, network region, and credentials. A passing integration run is not evidence of strategy profitability.
 
-- `clients/api_keys*.py` and `clients/withdrawal_addresses.py` are in `.gitignore` — never committed
-- `trader/config.py` is tracked in git — parameter changes are versioned alongside code
-- Always validate on demo/testnet before using live funds; arbitrage strategies can still lose money in volatile markets
+## Documentation
+
+- [Architecture and design decisions](docs/ARCHITECTURE.md)
+- [Operations, validation, and safety](docs/OPERATIONS.md)
+- [API configuration guide / API 配置指南](CONFIG_GUIDE.md)
+- [Command reference](RUN.txt)
+- [Server deployment notes](server/server_deployment_instructions.txt)
+
+## Security and limitations
+
+- Never commit API keys, withdrawal addresses, `.env` files, or generated logs.
+- Use least-privilege keys; disable withdrawals unless rebalancing is deliberately enabled.
+- Exchange APIs do not provide a cross-venue transaction, so temporary one-sided exposure cannot be eliminated completely.
+- The baseline and thresholds are heuristic online statistics. Regime shifts, thin books, latency, rate limits, and venue outages can invalidate their assumptions.
+- The repository does not include a historical backtester, formal latency benchmark, profitability report, or production SLA.
+
+## License
+
+No open-source license has been declared. All rights remain with the repository owner unless a license is added.
